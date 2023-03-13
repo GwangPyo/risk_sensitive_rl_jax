@@ -33,7 +33,8 @@ class Critic(hk.Module):
     def __init__(self,
                  z_dim: int = 256,
                  net_arch: Sequence[int] = (256, 256),
-                 n_cos: int = 64
+                 n_cos: int = 64,
+                 n_critics: int = 2,
                  ):
         super().__init__()
         self.kwargs = {
@@ -41,10 +42,11 @@ class Critic(hk.Module):
             "net_arch": net_arch,
             "n_cos": n_cos
         }
+        self.n_critics = n_critics
 
     def __call__(self, obs, actions, taus):
         args = (obs, actions, taus)
-        return jnp.stack([CosineQf(**self.kwargs)(*args) for _ in range(2)], axis=1)
+        return jnp.stack([CosineQf(**self.kwargs)(*args) for _ in range(self.n_critics)], axis=1)
 
 
 class StochasticActor(hk.Module):

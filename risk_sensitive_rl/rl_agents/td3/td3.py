@@ -33,7 +33,7 @@ class TD3(OffPolicyPG):
                  soft_update_coef: float = 5e-2,
                  target_noise: float = 0.3,
                  target_noise_clip: float = 0.5,
-                 drop_per_net: int = 0,
+                 drop_per_net: int = 2,
                  risk_type: str = 'cvar',
                  risk_param: float = 1.,
                  wandb: bool = False,
@@ -177,7 +177,7 @@ class TD3(OffPolicyPG):
                                            key=key)
         current_qf = self.critic.apply(param_critic, obs, actions, current_taus)
         loss = jnp.stack([(self.quantile_loss(target_qf, current_qf[:, i, :],  next_taus).mean(axis=-1) * weight).sum(axis=-1)
-                         for i in range(2)], axis=1).sum(axis=-1).mean()
+                         for i in range(self.n_critics)], axis=1).sum(axis=-1).mean()
         return loss, None
 
     @partial(jax.jit, static_argnums=0)
@@ -200,7 +200,7 @@ class TD3(OffPolicyPG):
         next_qf = next_qf.reshape(next_qf.shape[0], -1)
         next_qf = jnp.sort(next_qf, axis=-1)
         if self.drop_per_net > 0:
-            next_qf = next_qf[:, :-2 * self.drop_per_net]
+            next_qf = next_qf[:, :-self.n_critics * self.drop_per_net]
         return jax.lax.stop_gradient(rewards + self.gamma * (1. - dones) * next_qf)
 
     def train_step(self):

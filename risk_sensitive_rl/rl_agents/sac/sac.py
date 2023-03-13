@@ -44,8 +44,10 @@ class SAC(OffPolicyPG):
                  actor_fn: Callable = None,
                  critic_fn: Callable = None,
                  wandb: bool = False,
+                 n_critics: int = 2,
                  ):
 
+        self.n_critics = n_critics
         self.rng = hk.PRNGSequence(seed)
         super().__init__(env,
                          buffer_size=buffer_size,
@@ -70,7 +72,7 @@ class SAC(OffPolicyPG):
             quantile_placeholder = jnp.ones((1, self.n_quantiles))
 
             def critic_fn(obs, actions, taus):
-                return Critic()(obs, actions, taus)
+                return Critic(n_critics=self.n_critics)(obs, actions, taus)
 
             self.critic = hk.without_apply_rng(hk.transform(critic_fn))
             self.param_critic = self.param_critic_target = self.critic.init(next(self.rng),
@@ -177,7 +179,7 @@ class SAC(OffPolicyPG):
         current_qf = self.critic.apply(param_critic, obs, actions, tau_hat)
         loss = jnp.stack([((self.quantile_loss(target_qf, current_qf[:, i, :],  tau_hat).mean(axis=-1))
                           * weight).sum(axis=-1)
-                         for i in range(2)], axis=1).sum(axis=-1)
+                         for i in range(self.n_critics)], axis=1).sum(axis=-1)
         return loss.mean(), None
 
     @partial(jax.jit, static_argnums=0)
@@ -197,7 +199,7 @@ class SAC(OffPolicyPG):
         next_qf = next_qf.reshape(next_qf.shape[0], -1)
         next_qf = next_qf.sort(axis=-1)
         if self.drop_per_net > 0:
-            next_qf = next_qf[..., :-2 * self.drop_per_net]
+            next_qf = next_qf[..., :-self.n_critics * self.drop_per_net]
         next_qf = next_qf - ent_coef * next_log_pi
         return jax.lax.stop_gradient(rewards + self.gamma * (1. - dones) * next_qf)
 
