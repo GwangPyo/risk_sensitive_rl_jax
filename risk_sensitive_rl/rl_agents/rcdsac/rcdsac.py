@@ -14,7 +14,7 @@ import numpy as np
 import haiku as hk
 from risk_sensitive_rl.utils.optimize import optimize
 from typing import Optional, Callable
-
+from risk_sensitive_rl.rl_agents.risk_models import *
 
 class RCDSAC(SAC):
     name = "SAC"
