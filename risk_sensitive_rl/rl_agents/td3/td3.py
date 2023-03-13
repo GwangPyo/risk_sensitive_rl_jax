@@ -152,6 +152,16 @@ class TD3(OffPolicyPG):
         return loss
 
     @partial(jax.jit, static_argnums=0)
+    def sample_taus(self, key):
+        presume_tau = jax.random.uniform(key, (self.batch_size, self.n_quantiles)) + 0.1
+        presume_tau = presume_tau / presume_tau.sum(axis=-1, keepdims=True)
+        tau = jnp.cumsum(presume_tau, axis=-1)
+        tau_hat = jnp.zeros_like(tau)
+        tau_hat = tau_hat.at[:, 0:1].set(tau[:, 0:1] / 2)
+        tau_hat = tau_hat.at[:, 1:].set( (tau[:, 1:] + tau[:, :-1])/2)
+        return jax.lax.stop_gradient(tau), jax.lax.stop_gradient(tau_hat), jax.lax.stop_gradient(tau_hat)
+
+    @partial(jax.jit, static_argnums=0)
     def critic_loss(self,
                     param_critic: hk.Params,
                     param_critic_target: hk.Params,
@@ -164,9 +174,8 @@ class TD3(OffPolicyPG):
                     key: jax.random.PRNGKey
                     ):
         key1, key2 = jax.random.split(key)
-        placeholder = jnp.zeros(shape=(reward.shape[0], self.n_quantiles))
-        _, current_taus, weight = self.sample_taus(key1, placeholder)
-        _, next_taus, _ = self.sample_taus(key2, placeholder)
+        _, current_taus, weight = self.sample_taus(key1)
+        _, next_taus, _ = self.sample_taus(key2)
 
         target_qf = self.compute_target_qf(param_critic_target,
                                            param_actor_target,
@@ -218,16 +227,15 @@ class TD3(OffPolicyPG):
         self.logger.record(key='train/qf_loss', value=qf_loss.item())
 
         if self._n_updates % self.delay == 0:
-            placeholder = jnp.zeros(shape=(rewards.shape[0], self.n_quantiles))
-            taus, _, _ = self.sample_taus(key=next(self.rng), placeholder=placeholder)
-            taus = self.risk_model(taus, self.risk_param)
+            _, taus_hat, _ = self.sample_taus(key=next(self.rng))
+            taus_hat = self.risk_model(taus_hat, self.risk_param)
             self.opt_actor_state, self.param_actor, actor_loss, _ = optimize(
                 self.actor_loss,
                 self.opt_actor,
                 self.opt_actor_state,
                 self.param_actor,
                 self.param_critic,
-                obs, taus)
+                obs, taus_hat)
             self.logger.record(key='train/pi_loss', value=actor_loss.item())
             self.param_critic_target = soft_update(self.param_critic_target, self.param_critic, self.soft_update_coef)
             self.param_actor_target = soft_update(self.param_actor_target, self.param_actor, self.soft_update_coef)

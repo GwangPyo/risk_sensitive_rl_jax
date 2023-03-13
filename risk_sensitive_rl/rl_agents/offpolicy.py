@@ -68,6 +68,7 @@ class OffPolicyPG(object, metaclass=ABCMeta):
                 fmt_args=(self.name, )
             )
 
+
     @staticmethod
     def wrap_env(env):
         return NormalizedActionWrapper(env)
@@ -130,16 +131,6 @@ class OffPolicyPG(object, metaclass=ABCMeta):
 
     def done_callback(self):
         pass
-
-    @partial(jax.jit, static_argnums=0)
-    def sample_taus(self, key, placeholder):
-        presume_tau = jax.random.uniform(key, placeholder.shape) + 0.1
-        presume_tau = presume_tau / presume_tau.sum(axis=-1, keepdims=True)
-        tau = jnp.cumsum(presume_tau, axis=-1)
-        tau_hat = jnp.zeros_like(tau)
-        tau_hat = tau_hat.at[:, 0:1].set(tau[:, 0:1] / 2)
-        tau_hat = tau_hat.at[:, 1:].set( (tau[:, 1:] + tau[:, :-1])/2)
-        return jax.lax.stop_gradient(tau), jax.lax.stop_gradient(tau_hat), jax.lax.stop_gradient(tau_hat)
 
     def learn(self,
               steps,

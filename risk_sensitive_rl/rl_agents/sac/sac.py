@@ -151,6 +151,17 @@ class SAC(OffPolicyPG):
         return loss
 
     @partial(jax.jit, static_argnums=0)
+    def sample_taus(self, key):
+        presume_tau = jax.random.uniform(key, (self.batch_size, self.n_quantiles)) + 0.1
+        presume_tau = presume_tau / presume_tau.sum(axis=-1, keepdims=True)
+        tau = jnp.cumsum(presume_tau, axis=-1)
+        tau_hat = jnp.zeros_like(tau)
+        tau_hat = tau_hat.at[:, 0:1].set(tau[:, 0:1] / 2)
+        tau_hat = tau_hat.at[:, 1:].set( (tau[:, 1:] + tau[:, :-1])/2)
+        return jax.lax.stop_gradient(tau), jax.lax.stop_gradient(tau_hat), jax.lax.stop_gradient(tau_hat)
+
+
+    @partial(jax.jit, static_argnums=0)
     def critic_loss(self,
                     param_critic: hk.Params,
                     param_critic_target: hk.Params,

@@ -8,7 +8,7 @@ from typing import Optional
 class MainObject(object):
     def __init__(self,
                  env_name: str,
-                 learning_steps: int = int(1e+4),
+                 learning_steps: int = int(3e+6),
                  save_name: Optional[str] = None):
         self.env_name = env_name
         self.learning_steps = learning_steps
