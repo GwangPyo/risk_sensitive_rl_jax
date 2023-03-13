@@ -51,6 +51,3 @@ ENV LD_LIBRARY_PATH /usr/local/nvidia/lib64:${LD_LIBRARY_PATH}
 # compile
 RUN echo "import gym; gym.make('Hopper-v3'); print('compiled')" | python3
 RUN apt-get clean
-# cli interface
-RUN pip install click
-
