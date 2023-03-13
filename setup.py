@@ -6,6 +6,6 @@ setup(
     description='risk sensitive RL packages for continuous control',
     author='Gwangpyo Yoo',
     author_email='necrocathy@gmail.com',
-    requires=['jax', 'dm-haiku', 'optax', 'gym==0.21', 'numpy'],
+    requires=[],
     packages=find_packages(exclude=[])
 )
