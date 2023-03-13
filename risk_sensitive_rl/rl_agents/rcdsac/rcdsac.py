@@ -44,12 +44,14 @@ class RCDSAC(SAC):
                  risk_type: str = 'cvar',
                  min_risk_param: float = 0.,
                  max_risk_param: float = 1.,
+                 n_critics: int = 2,
                  ):
 
         self.rng = hk.PRNGSequence(seed)
         self.env = env
         n_quantiles = 32
         self.n_quantiles = n_quantiles
+        self.n_critics = n_critics
         if actor_fn is None:
             def actor_fn(risk_param, obs):
                 return RCDSACActor(self.env.action_space.shape[0])(risk_param, obs)
@@ -62,7 +64,7 @@ class RCDSAC(SAC):
         if critic_fn is None:
 
             def critic_fn(risk_param, obs, actions, taus):
-                return RCDSACCritic()(risk_param, obs, actions, taus)
+                return RCDSACCritic(n_critics=n_critics)(risk_param, obs, actions, taus)
 
             obs_placeholder, a_placeholder = self.make_placeholder()
             risk_param_placeholder = jnp.ones((1, 1))
@@ -83,6 +85,9 @@ class RCDSAC(SAC):
                          target_entropy=target_entropy,
                          actor_fn=actor_fn,
                          critic_fn=critic_fn,
+                         lr_actor=lr_actor,
+                         lr_critic=lr_critic,
+                         lr_ent=lr_ent,
                          wandb=wandb)
 
         self._n_updates = 0
@@ -190,8 +195,7 @@ class RCDSAC(SAC):
         loss = jnp.stack([(self.quantile_loss(target_qf,
                                               current_qf[:, i, :],
                                               taus_hat).mean(axis=-1) * weight).sum(axis=-1)
-                          for i in range(2)], axis=1)
-        print(loss.shape)
+                          for i in range(self.n_critics)], axis=1)
         return loss.sum(axis=-1).mean(), target_qf
 
     @partial(jax.jit, static_argnums=0)

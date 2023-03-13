@@ -32,15 +32,15 @@ class CMVTD3(TD3):
                  actor_fn: Callable = None,
                  critic_fn: Callable = None,
                  wandb: bool = False,
-                 n_critis: int = 2,
+                 n_critics: int = 2,
 
                  ):
         self.rng = hk.PRNGSequence(seed)
-        self.n_critics = n_critis
+        self.n_critics = n_critics
         self.env = env
         if critic_fn is None:
             def critic_fn(observation, action):
-                return CMVCritic(n_critics=n_critis)(observation, action)
+                return CMVCritic(n_critics=n_critics)(observation, action)
 
             obs_placeholder, a_placeholder = self.make_placeholder()
             self.critic = hk.without_apply_rng(hk.transform(critic_fn))
@@ -84,11 +84,11 @@ class CMVTD3(TD3):
                          drop_per_net=1,
                          risk_param=0.5,
                          wandb=wandb,
-                         actor_fn=None,
+                         actor_fn=actor_fn,
                          critic_fn=critic_fn,
                          explore_noise=exploration_noise,
                          exploration_noise_clip=exploration_noise_clip,
-                         n_critics=n_critis)
+                         n_critics=n_critics)
 
         self.cmv_beta = risk_param
         self.gamma_square = self.gamma ** 2

@@ -30,14 +30,14 @@ class CMVSAC(SAC):
                  actor_fn: Callable = None,
                  critic_fn: Callable = None,
                  wandb: bool = False,
-                 n_critis: int = 2,
+                 n_critics: int = 2,
                  ):
         self.env = env
         self.rng = hk.PRNGSequence(seed)
-        self.n_critics = n_critis
+        self.n_critics = n_critics
         if critic_fn is None:
             def critic_fn(observation, action):
-                return CMVCritic(n_critics=n_critis)(observation, action)
+                return CMVCritic(n_critics=n_critics)(observation, action)
 
             obs_placeholder, a_placeholder = self.make_placeholder()
             self.critic = hk.without_apply_rng(hk.transform(critic_fn))
