@@ -1,4 +1,4 @@
-from rl_agents.cmv_sac_td3.cmv_td3 import CMVTD3
+from risk_sensitive_rl.rl_agents import CMVTD3
 import gym
 
 if __name__ == '__main__':

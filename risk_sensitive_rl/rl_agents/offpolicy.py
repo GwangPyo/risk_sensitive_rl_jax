@@ -1,4 +1,4 @@
-from utils.replay_buffer import ReplayBuffer
+from risk_sensitive_rl.utils.replay_buffer import ReplayBuffer
 import gym
 from abc import ABCMeta, abstractmethod
 import numpy as np
@@ -8,8 +8,8 @@ import haiku as hk
 from time import time
 from datetime import timedelta
 from collections import deque
-from utils.logger import Logger
-from utils.env_wrappers import NormalizedActionWrapper
+from risk_sensitive_rl.utils.logger import Logger
+from risk_sensitive_rl.utils.env_wrappers import NormalizedActionWrapper
 from functools import partial
 import jax
 import os

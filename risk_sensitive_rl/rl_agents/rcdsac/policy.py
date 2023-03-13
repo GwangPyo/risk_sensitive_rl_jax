@@ -2,8 +2,7 @@ import haiku as hk
 import jax.numpy as jnp
 import jax.nn as nn
 from typing import Sequence
-from common_model import MLP
-import jax
+from risk_sensitive_rl.common_model import MLP
 
 
 class RawCosines(hk.Module):

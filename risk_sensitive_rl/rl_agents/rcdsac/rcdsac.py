@@ -2,20 +2,18 @@ from functools import partial
 import gym
 import jax.lax
 
-from utils.optimize import soft_update
+from risk_sensitive_rl.utils.optimize import soft_update
 
-from rl_agents.sac import SAC
-from rl_agents.rcdsac.policy import RCDSACCritic, RCDSACActor
-from common_model import tanh_normal_reparamterization, get_actions_logprob
+from risk_sensitive_rl.rl_agents.sac import SAC
+from risk_sensitive_rl.rl_agents.rcdsac.policy import RCDSACCritic, RCDSACActor
+from risk_sensitive_rl.common_model import tanh_normal_reparamterization, get_actions_logprob
 
 
 import numpy as np
 
 import haiku as hk
-import optax
-from utils.optimize import optimize
+from risk_sensitive_rl.utils.optimize import optimize
 from typing import Optional, Callable
-from rl_agents.risk_models import *
 
 
 class RCDSAC(SAC):

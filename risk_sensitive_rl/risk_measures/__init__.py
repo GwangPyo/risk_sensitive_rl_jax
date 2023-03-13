@@ -1,4 +1,4 @@
-from risk_measures.measures import *
+from risk_sensitive_rl.risk_measures.measures import *
 
 risk_map = {"neutral": neutral,
             "averse_cvar": averse_cvar,

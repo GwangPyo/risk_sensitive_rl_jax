@@ -2,7 +2,7 @@ import haiku as hk
 import jax.numpy as jnp
 import jax.nn as nn
 from typing import Sequence
-from common_model import MLP, IQNHead
+from risk_sensitive_rl.common_model import MLP, IQNHead
 
 
 class CosineQf(hk.Module):

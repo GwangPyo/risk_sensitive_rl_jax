@@ -1,7 +1,7 @@
 import haiku as hk
 from typing import Sequence
-from common_model import MLP
-from common_model.commons import IQNHead
+from risk_sensitive_rl.common_model import MLP
+from risk_sensitive_rl.common_model.commons import IQNHead
 import jax.numpy as jnp
 from jax import nn
 

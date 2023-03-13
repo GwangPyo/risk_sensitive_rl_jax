@@ -1,9 +1,8 @@
-from rl_agents.sac import SAC
+from risk_sensitive_rl.rl_agents.td3 import TD3
 import gym
-from rl_agents.cmv_sac_td3.policy import CMVCritic, RewardPredictor
-from typing import Optional, Callable
-from utils.optimize import optimize, soft_update
-from common_model.commons import get_actions_logprob
+from risk_sensitive_rl.rl_agents.cmv_sac_td3.policy import CMVCritic, RewardPredictor
+from typing import Callable
+from risk_sensitive_rl.utils.optimize import optimize, soft_update
 
 import haiku as hk
 import jax.numpy as jnp
@@ -12,7 +11,7 @@ import optax
 from functools import partial
 
 
-class CMVSAC(SAC):
+class CMVTD3(TD3):
     def __init__(self,
                  env: gym.Env,
                  buffer_size: int = 1000_000,
@@ -20,21 +19,25 @@ class CMVSAC(SAC):
                  batch_size: int = 256,
                  warmup_steps: int = 2000,
                  seed: int = 0,
+                 delay: int = 2,
                  lr_actor: float = 3e-4,
                  lr_critic: float = 3e-4,
-                 lr_ent: float = 3e-4,
                  lr_reward: float = 3e-4,
                  soft_update_coef: float = 5e-2,
-                 target_entropy: Optional[float] = None,
+                 target_noise=0.3,
+                 target_noise_clip=0.5,
+                 exploration_noise=0.3,
+                 exploration_noise_clip=0.5,
                  risk_param=0.5,
                  actor_fn: Callable = None,
                  critic_fn: Callable = None,
                  wandb: bool = False,
                  n_critis: int = 2,
+
                  ):
-        self.env = env
         self.rng = hk.PRNGSequence(seed)
         self.n_critics = n_critis
+        self.env = env
         if critic_fn is None:
             def critic_fn(observation, action):
                 return CMVCritic(n_critics=n_critis)(observation, action)
@@ -74,30 +77,33 @@ class CMVSAC(SAC):
                          seed,
                          lr_actor,
                          lr_critic,
-                         lr_ent,
-                         soft_update_coef,
-                         target_entropy,
-                         drop_per_net=-1,
+                         delay=delay,
+                         soft_update_coef=soft_update_coef,
+                         target_noise=target_noise,
+                         target_noise_clip=target_noise_clip,
+                         drop_per_net=1,
                          risk_param=0.5,
-                         actor_fn=actor_fn,
+                         wandb=wandb,
+                         actor_fn=None,
                          critic_fn=critic_fn,
-                         wandb=wandb
-                         )
+                         explore_noise=exploration_noise,
+                         exploration_noise_clip=exploration_noise_clip,
+                         n_critics=n_critis)
+
         self.cmv_beta = risk_param
         self.gamma_square = self.gamma ** 2
 
-    @partial(jax.jit, static_argnums=0)
+    @partial(jax.jit, static_argnums=(0,))
     def reward_predictor_loss(self,
                               param_reward_predictor: hk.Params,
                               observations: jnp.ndarray,
                               actions: jnp.ndarray,
                               rewards: jnp.ndarray):
-
         rf_hat = self.reward_predictor.apply(param_reward_predictor, observations, actions)
         errors = (rewards - rf_hat) ** 2
         return errors.mean(), jax.lax.stop_gradient(errors)
 
-    @partial(jax.jit, static_argnums=(0, ))
+    @partial(jax.jit, static_argnums=(0,))
     def critic_loss(self,
                     param_critic: hk.Params,
                     param_critic_target: hk.Params,
@@ -108,23 +114,21 @@ class CMVSAC(SAC):
                     dones: jnp.ndarray,
                     next_obs: jnp.ndarray,
                     rewards_error: jnp.ndarray,
-                    ent_coef: jnp.ndarray,
                     key: jax.random.PRNGKey
                     ):
-
         qf, qf_beta = self.critic.apply(param_critic, obs, actions)
         target_qf, target_qf_beta = self.compute_target_qf(
             param_critic_target,
             param_actor,
             next_obs,
             reward, rewards_error,
-            dones, ent_coef, key
+            dones, key
         )
         qf_loss = ((qf - target_qf[..., None]) ** 2).sum(axis=-2).mean()
         qf_beta_loss = ((qf_beta - target_qf_beta[..., None]) ** 2).sum(axis=-2).mean()
         return qf_loss + qf_beta_loss, (qf_loss, qf_beta_loss)
 
-    @partial(jax.jit, static_argnums=(0, ))
+    @partial(jax.jit, static_argnums=(0,))
     def compute_target_qf(self,
                           param_critic_target: hk.Params,
                           param_actor: hk.Params,
@@ -132,40 +136,40 @@ class CMVSAC(SAC):
                           rewards: jnp.ndarray,
                           reward_error: jnp.ndarray,
                           dones: jnp.ndarray,
-                          ent_coef: jnp.ndarray,
                           key: jax.random.PRNGKey,
                           ):
-        mu, logstd = self.actor.apply(param_actor, next_obs)
-        next_actions, next_log_pi = get_actions_logprob(mu, logstd, key)
+        next_actions = self.actor.apply(param_actor, next_obs)
+        noise = jax.random.normal(key, shape=next_actions.shape)
+        noise = self.target_noise * noise
+        noise = noise.clip(-self.target_noise_clip, self.target_noise_clip)
+        next_actions = next_actions + noise
+        next_actions = next_actions.clip(-1., 1.)
+
         next_qf, next_qf_beta = self.critic.apply(param_critic_target, next_obs, next_actions)
         next_qf = next_qf.min(axis=-2)
         next_qf_beta = next_qf_beta.max(axis=-2)
-
-        next_qf = next_qf - ent_coef * next_log_pi
 
         next_target_qf = jax.lax.stop_gradient(rewards + (1. - dones) * self.gamma * next_qf)
         next_target_qf_beta = jax.lax.stop_gradient(rewards + (1. - dones) * self.gamma_square * next_qf_beta)
         return next_target_qf, next_target_qf_beta
 
-    @partial(jax.jit, static_argnums=(0, ))
+    @partial(jax.jit, static_argnums=(0,))
     def actor_loss(self,
                    param_actor: hk.Params,
                    param_critic: hk.Params,
                    obs: jnp.ndarray,
-                   ent_coef: jnp.ndarray,
                    key: jax.random.PRNGKey
                    ):
-        mu, logstd = self.actor.apply(param_actor, obs)
-        actions, actions_log_pi = get_actions_logprob(mu, logstd, key)
+        actions = self.actor.apply(param_actor, obs)
         qf, qf_beta = self.critic.apply(param_critic, obs, actions)
         qf = qf.min(axis=-2)
-        qf_beta = qf_beta.max(axis=-2)
-        actor_loss = (-qf + ent_coef * actions_log_pi +self.cmv_beta * qf_beta).mean()
-        return actor_loss, jax.lax.stop_gradient(actions_log_pi)
+        qf_beta = qf.max(axis=-2)
+
+        actor_loss = (-qf + self.cmv_beta * qf_beta).mean()
+        return actor_loss, None
 
     def train_step(self):
         obs, actions, rewards, dones, next_obs = self.buffer.sample(self.batch_size)
-        ent_coef = jnp.exp(self.log_ent_coef)
 
         self.opt_reward_predictor_state, self.param_reward_predictor, rf_loss, reward_error = optimize(
             self.reward_predictor_loss,
@@ -183,7 +187,7 @@ class CMVSAC(SAC):
             self.param_critic_target,
             self.param_actor,
             obs, actions, rewards, dones,
-            next_obs, reward_error, ent_coef, next(self.rng))
+            next_obs, reward_error, next(self.rng))
 
         self.opt_actor_state, self.param_actor, actor_loss, log_pi = optimize(
             self.actor_loss,
@@ -191,20 +195,10 @@ class CMVSAC(SAC):
             self.opt_actor_state,
             self.param_actor,
             self.param_critic,
-            obs, ent_coef, next(self.rng))
-
-        self.opt_ent_state, self.log_ent_coef, ent_coef_loss, _ = optimize(
-            self.ent_coef_loss,
-            self.opt_ent,
-            self.opt_ent_state,
-            self.log_ent_coef,
-            log_pi
-        )
+            obs, next(self.rng))
 
         self.logger.record(key='train/pi_loss', value=actor_loss.item())
         self.logger.record(key='train/qf_loss', value=qf_loss.mean().item())
-        self.logger.record(key='train/ent_coef_loss', value=ent_coef_loss.item())
-        self.logger.record(key='etc/current_ent_coef', value=ent_coef.item())
         self.logger.record(key='train/rf_loss', value=rf_loss.item())
         self.logger.record(key='train/qf_beta_loss', value=qf_beta_loss.mean().item())
 

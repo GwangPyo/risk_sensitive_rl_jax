@@ -1,21 +1,23 @@
 from functools import partial
 import gym
 
-from rl_agents.offpolicy import OffPolicyPG
-from utils.optimize import soft_update
-from rl_agents.risk_models import *
+from risk_sensitive_rl.utils.optimize import soft_update
+
+from risk_sensitive_rl.rl_agents.offpolicy import OffPolicyPG
+from risk_sensitive_rl.rl_agents.sac.policy import StochasticActor, Critic
+from risk_sensitive_rl.common_model import tanh_normal_reparamterization, get_actions_logprob
+
+
 import numpy as np
+
 import haiku as hk
-import jax.numpy as jnp
-import jax
 import optax
-from utils.optimize import optimize
-from typing import Callable
-from rl_agents.td3.policy import DeterministicActor, Critic
+from risk_sensitive_rl.utils.optimize import optimize
+from typing import Optional, Callable
 
 
-class TD3(OffPolicyPG):
-    name = "TD3"
+class SAC(OffPolicyPG):
+    name = "SAC"
     risk_types = {"cvar": sample_cvar,
                   "general_cvar": sample_cvar_general,
                   "general_pow": sample_power_general,
@@ -32,20 +34,17 @@ class TD3(OffPolicyPG):
                  seed: int = 0,
                  lr_actor: float = 3e-4,
                  lr_critic: float = 3e-4,
-                 delay: int = 2,
+                 lr_ent: float = 3e-4,
                  soft_update_coef: float = 5e-2,
-                 target_noise: float = 0.3,
-                 target_noise_clip: float = 0.5,
-                 drop_per_net: int = 0,
-                 risk_type: str = 'cvar',
-                 risk_param: float = 1.,
-                 wandb: bool = False,
+                 target_entropy: Optional[float] = None,
+                 drop_per_net: int = 2,
+                 risk_type='cvar',
+                 risk_param=1.0,
                  actor_fn: Callable = None,
                  critic_fn: Callable = None,
-                 explore_noise: float = 0.3,
-                 exploration_noise_clip: float = 0.5,
-                 n_critics: int = 2,
+                 wandb: bool = False,
                  ):
+
         self.rng = hk.PRNGSequence(seed)
         super().__init__(env,
                          buffer_size=buffer_size,
@@ -56,28 +55,33 @@ class TD3(OffPolicyPG):
                          wandb=wandb)
         n_quantiles = 32
         self.n_quantiles = n_quantiles
-        self.n_critics = n_critics
+        self.drop_per_net = drop_per_net
 
         if actor_fn is None:
             def actor_fn(obs):
-                return DeterministicActor(self.env.action_space.shape[0])(obs)
-
+                return StochasticActor(self.env.action_space.shape[0])(obs)
             obs_placeholder, a_placeholder = self.make_placeholder()
             self.actor = hk.without_apply_rng(hk.transform(actor_fn))
-            self.param_actor = self.param_actor_target = self.actor.init(next(self.rng), obs_placeholder)
+            self.param_actor = self.actor.init(next(self.rng), obs_placeholder)
 
         if critic_fn is None:
-            def critic_fn(obs, actions, taus):
-                return Critic(n_critics=self.n_critics)(obs, actions, taus)
-
             obs_placeholder, a_placeholder = self.make_placeholder()
             quantile_placeholder = jnp.ones((1, self.n_quantiles))
+
+            def critic_fn(obs, actions, taus):
+                return Critic()(obs, actions, taus)
+
             self.critic = hk.without_apply_rng(hk.transform(critic_fn))
             self.param_critic = self.param_critic_target = self.critic.init(next(self.rng),
                                                                             obs_placeholder,
                                                                             a_placeholder,
                                                                             quantile_placeholder)
 
+        self.log_ent_coef = jnp.asarray([0. ])
+        if target_entropy is None:
+            self.target_entropy = -np.prod(self.env.action_space.shape).astype(np.float32)
+        else:
+            self.target_entropy = target_entropy
         opt_init, self.opt_actor = optax.chain(
             optax.add_decayed_weights(1e-2),
             optax.clip_by_global_norm(0.5),
@@ -91,57 +95,46 @@ class TD3(OffPolicyPG):
             optax.adabelief(lr_critic))
 
         self.opt_critic_state = opt_init(self.param_critic)
-        self._n_updates = 0
 
-        self.explore_noise = explore_noise
-        self.exploration_noise_clip = exploration_noise_clip
-        self.drop_per_net = drop_per_net
-        self.delay = delay
-        self.target_noise = target_noise
-        self.target_noise_clip = target_noise_clip
+        opt_init, self.opt_ent = optax.chain(
+            optax.add_decayed_weights(1e-2),
+            optax.clip_by_global_norm(0.5),
+            optax.adabelief(lr_ent))
+
+        self.opt_ent_state = opt_init(self.log_ent_coef)
+
+        self._n_updates = 0
         self.soft_update_coef = soft_update_coef
-        self.taus_placeholder = jnp.ones((self.batch_size, self.n_quantiles), dtype=jnp.float32)
         try:
-            self.risk_model = TD3.risk_types[risk_type]
+            self.risk_model = SAC.risk_types[risk_type]
             self.risk_param = risk_param
         except KeyError:
             raise NotImplementedError
 
-    @partial(jax.jit, static_argnums=0)
-    def _explore(self, param_actor, observations, key)-> np.ndarray:
-        predictions = self._predict(param_actor, observations)[0]
-        noise = self.explore_noise * (jax.random.normal(key, shape=predictions.shape))
-        noise = jnp.clip(noise, -self.exploration_noise_clip, self.exploration_noise_clip)
-        predictions = predictions + noise
-        return predictions.clip(-1., 1.)
-
-    def explore(self, observations, state=None, *args, **kwargs) -> np.ndarray:
-        predictions = self._explore(self.param_actor, observations[None], next(self.rng))
-        return np.asarray(predictions).astype(self.env.action_space.dtype)
-
     def predict(self, observations, state=None, *args, **kwargs) -> np.ndarray:
         # policy predict and post process to be numpy
         observations = observations[None]
-        actions = np.asarray(self._predict(self.param_actor, observations))[0]
-        return actions
+        return np.asarray(self._predict(self.param_actor, observations, next(self.rng)))[0]
 
     @partial(jax.jit, static_argnums=0)
-    def _predict(self, param_actor, observations):
-        return self.actor.apply(param_actor, observations)
+    def _predict(self, param_actor, observations, key):
+        return tanh_normal_reparamterization(*self.actor.apply(param_actor, observations), key)
 
     @partial(jax.jit, static_argnums=0)
     def actor_loss(self,
                    param_actor: hk.Params,
                    param_critic: hk.Params,
                    obs: jnp.ndarray,
-                   taus: jnp.ndarray
+                   taus: jnp.ndarray,
+                   ent_coef: jnp.ndarray,
+                   key: jax.random.PRNGKey
                    ):
 
-        actions = self.actor.apply(param_actor, obs)
+        mu, logstd = self.actor.apply(param_actor, obs)
+        actions, log_pi = get_actions_logprob(mu, logstd, key)
         qf = self.critic.apply(param_critic, obs, actions, taus).mean(axis=-1)
-        qf = jnp.min(qf, axis=-1)
-
-        return -qf.mean(), None
+        qf = jnp.min(qf, axis=-1, keepdims=True)
+        return (ent_coef * log_pi - qf).mean(), log_pi
 
     @staticmethod
     @jax.jit
@@ -158,56 +151,65 @@ class TD3(OffPolicyPG):
     def critic_loss(self,
                     param_critic: hk.Params,
                     param_critic_target: hk.Params,
-                    param_actor_target: hk.Params,
+                    param_actor: hk.Params,
                     obs: jnp.ndarray,
                     actions: jnp.ndarray,
                     reward: jnp.ndarray,
                     dones: jnp.ndarray,
                     next_obs: jnp.ndarray,
+                    ent_coef: jnp.ndarray,
                     key: jax.random.PRNGKey
                     ):
-        key1, key2 = jax.random.split(key)
-        placeholder = jnp.zeros(shape=(reward.shape[0], self.n_quantiles))
-        _, current_taus, weight = self.sample_taus(key1, placeholder)
-        _, next_taus, _ = self.sample_taus(key2, placeholder)
+        key1, key2 = jax.random.split(key, 2)
+        _, tau_hat, weight = self.sample_taus(key1)
+        _, next_tau, _ = self.sample_taus(key2)
 
         target_qf = self.compute_target_qf(param_critic_target,
-                                           param_actor_target,
+                                           param_actor,
                                            next_obs=next_obs,
-                                           next_taus=next_taus,
+                                           next_taus=next_tau,
                                            rewards=reward,
                                            dones=dones,
+                                           ent_coef=ent_coef,
                                            key=key)
-        current_qf = self.critic.apply(param_critic, obs, actions, current_taus)
-        loss = jnp.stack([(self.quantile_loss(target_qf, current_qf[:, i, :],  next_taus).mean(axis=-1) * weight).sum(axis=-1)
-                         for i in range(2)], axis=1).sum(axis=-1).mean()
-        return loss, None
+
+        current_qf = self.critic.apply(param_critic, obs, actions, tau_hat)
+        loss = jnp.stack([((self.quantile_loss(target_qf, current_qf[:, i, :],  tau_hat).mean(axis=-1))
+                          * weight).sum(axis=-1)
+                         for i in range(2)], axis=1).sum(axis=-1)
+        return loss.mean(), None
 
     @partial(jax.jit, static_argnums=0)
     def compute_target_qf(self,
                           param_critic_target: hk.Params,
-                          param_actor_target: hk.Params,
+                          param_actor: hk.Params,
                           next_obs: jnp.ndarray,
                           next_taus: jnp.ndarray,
                           rewards: jnp.ndarray,
                           dones: jnp.ndarray,
+                          ent_coef: jnp.ndarray,
                           key: jax.random.PRNGKey,
                           ):
-        key1, key2 = jax.random.split(key, 2)
-        next_actions = self.actor.apply(param_actor_target, next_obs)
-
-        noise = self.target_noise * jax.random.normal(key=key2, shape=next_actions.shape)
-        noise = jnp.clip(noise, -self.target_noise_clip, self.target_noise_clip)
-        next_actions = jnp.clip(noise + next_actions, -1., 1.)
+        mu, logstd = self.actor.apply(param_actor, next_obs)
+        next_actions, next_log_pi = get_actions_logprob(mu, logstd, key)
         next_qf = self.critic.apply(param_critic_target, next_obs, next_actions, next_taus)
         next_qf = next_qf.reshape(next_qf.shape[0], -1)
-        next_qf = jnp.sort(next_qf, axis=-1)
+        next_qf = next_qf.sort(axis=-1)
         if self.drop_per_net > 0:
-            next_qf = next_qf[:, :-2 * self.drop_per_net]
+            next_qf = next_qf[..., :-2 * self.drop_per_net]
+        next_qf = next_qf - ent_coef * next_log_pi
         return jax.lax.stop_gradient(rewards + self.gamma * (1. - dones) * next_qf)
+
+    @partial(jax.jit, static_argnums=0)
+    def ent_coef_loss(self,
+                      log_ent_coef,
+                      current_log_pi
+                      ):
+        return (-log_ent_coef * jax.lax.stop_gradient(current_log_pi + self.target_entropy).mean()).mean(), None
 
     def train_step(self):
         obs, actions, rewards, dones, next_obs = self.buffer.sample(self.batch_size)
+        ent_coef = jnp.exp(self.log_ent_coef)
 
         self.opt_critic_state, self.param_critic, qf_loss, _ = optimize(
             self.critic_loss,
@@ -215,25 +217,33 @@ class TD3(OffPolicyPG):
             self.opt_critic_state,
             self.param_critic,
             self.param_critic_target,
-            self.param_actor_target,
+            self.param_actor,
             obs, actions, rewards, dones,
-            next_obs, next(self.rng))
-        self.logger.record(key='train/qf_loss', value=qf_loss.item())
+            next_obs, ent_coef, next(self.rng))
 
-        if self._n_updates % self.delay == 0:
-            placeholder = jnp.zeros(shape=(rewards.shape[0], self.n_quantiles))
-            taus, _, _ = self.sample_taus(key=next(self.rng), placeholder=placeholder)
-            taus = self.risk_model(taus, self.risk_param)
-            self.opt_actor_state, self.param_actor, actor_loss, _ = optimize(
-                self.actor_loss,
-                self.opt_actor,
-                self.opt_actor_state,
-                self.param_actor,
-                self.param_critic,
-                obs, taus)
-            self.logger.record(key='train/pi_loss', value=actor_loss.item())
-            self.param_critic_target = soft_update(self.param_critic_target, self.param_critic, self.soft_update_coef)
-            self.param_actor_target = soft_update(self.param_actor_target, self.param_actor, self.soft_update_coef)
+        _, tau_hat, _ = self.sample_taus(next(self.rng))
+        self.opt_actor_state, self.param_actor, actor_loss, log_pi = optimize(
+            self.actor_loss,
+            self.opt_actor,
+            self.opt_actor_state,
+            self.param_actor,
+            self.param_critic,
+            obs, tau_hat, ent_coef, next(self.rng))
+
+        self.opt_ent_state, self.log_ent_coef, ent_coef_loss, _ = optimize(
+            self.ent_coef_loss,
+            self.opt_ent,
+            self.opt_ent_state,
+            self.log_ent_coef,
+            log_pi
+        )
+
+        self.logger.record(key='train/pi_loss', value=actor_loss.item())
+        self.logger.record(key='train/qf_loss', value=qf_loss.item())
+        self.logger.record(key='train/ent_coef_loss', value=ent_coef_loss.item())
+        self.logger.record(key='etc/current_ent_coef', value=ent_coef.item())
+
+        self.param_critic_target = soft_update(self.param_critic_target, self.param_critic, self.soft_update_coef)
 
     def save(self, path):
         params = {"param_actor": self.param_actor,
@@ -243,5 +253,7 @@ class TD3(OffPolicyPG):
 
     def load(self, path):
         params = np.load(path, allow_pickle=True)
+
         self.param_actor = params["param_actor"].item()
         self.param_critic = params["param_critic"].item()
+
