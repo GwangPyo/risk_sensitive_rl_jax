@@ -7,5 +7,6 @@ setup(
     author='Gwangpyo Yoo',
     author_email='necrocathy@gmail.com',
     requires=[],
+    install_requires=['wandb', 'dm-haiku', 'optax', 'gym==0.21', ],
     packages=find_packages(exclude=[])
 )
