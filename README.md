@@ -1,3 +1,4 @@
+
 # risk_sensitive_rl_jax
 Risk Sensitive RL packages for continuous control 
 
@@ -24,3 +25,5 @@ RCDSAC: Risk Conditioned SAC.
 
 See  https://arxiv.org/abs/2104.03111
 
+NOTE: The docker file automatically install mujoco in the docker environment. If you do not need it, remove below the comment 
+"# install mujco"
