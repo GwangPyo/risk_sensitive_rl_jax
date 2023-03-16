@@ -10,8 +10,8 @@ from risk_sensitive_rl.common_model import tanh_normal_reparamterization, get_ac
 
 
 import numpy as np
-
 import haiku as hk
+
 from risk_sensitive_rl.utils.optimize import optimize
 from typing import Optional, Callable
 from risk_sensitive_rl.rl_agents.risk_models import *
@@ -29,7 +29,7 @@ class RCDSAC(SAC):
                  env: gym.Env,
                  buffer_size: int = 1000_000,
                  gamma: float = 0.99,
-                 batch_size: int = 256,
+                 batch_size: int = 128,
                  warmup_steps: int = 2000,
                  seed: int = 0,
                  lr_actor: float = 3e-4,
@@ -39,7 +39,7 @@ class RCDSAC(SAC):
                  target_entropy: Optional[float] = None,
                  actor_fn: Callable = None,
                  critic_fn: Callable = None,
-                 drop_per_net: int = 2,
+                 drop_per_net: int = 5,
                  wandb: bool = False,
                  risk_type: str = 'cvar',
                  min_risk_param: float = 0.,

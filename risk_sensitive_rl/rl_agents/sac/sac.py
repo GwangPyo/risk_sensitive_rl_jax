@@ -11,10 +11,11 @@ from risk_sensitive_rl.common_model import tanh_normal_reparamterization, get_ac
 import numpy as np
 
 import haiku as hk
-import optax
+from risk_sensitive_rl.rl_agents.misc import build_optimizer
 from risk_sensitive_rl.utils.optimize import optimize
 from typing import Optional, Callable
 from risk_sensitive_rl.rl_agents.risk_models import *
+
 
 
 class SAC(OffPolicyPG):
@@ -30,15 +31,15 @@ class SAC(OffPolicyPG):
                  env: gym.Env,
                  buffer_size: int = 1000_000,
                  gamma: float = 0.99,
-                 batch_size: int = 256,
+                 batch_size: int = 128,
                  warmup_steps: int = 2000,
                  seed: int = 0,
                  lr_actor: float = 3e-4,
                  lr_critic: float = 3e-4,
                  lr_ent: float = 3e-4,
-                 soft_update_coef: float = 5e-2,
+                 soft_update_coef: float = 5e-3,
                  target_entropy: Optional[float] = None,
-                 drop_per_net: int = 2,
+                 drop_per_net: int = 5,
                  risk_type='cvar',
                  risk_param=1.0,
                  actor_fn: Callable = None,
@@ -85,25 +86,15 @@ class SAC(OffPolicyPG):
             self.target_entropy = -np.prod(self.env.action_space.shape).astype(np.float32)
         else:
             self.target_entropy = target_entropy
-        opt_init, self.opt_actor = optax.chain(
-            optax.add_decayed_weights(1e-2),
-            optax.clip_by_global_norm(0.5),
-            optax.adabelief(lr_actor))
+        opt_init, self.opt_actor = build_optimizer(lr_actor)
 
         self.opt_actor_state = opt_init(self.param_actor)
 
-        opt_init, self.opt_critic = optax.chain(
-            optax.add_decayed_weights(1e-2),
-            optax.clip_by_global_norm(0.5),
-            optax.adabelief(lr_critic))
+        opt_init, self.opt_critic = build_optimizer(lr_critic)
 
         self.opt_critic_state = opt_init(self.param_critic)
 
-        opt_init, self.opt_ent = optax.chain(
-            optax.add_decayed_weights(1e-2),
-            optax.clip_by_global_norm(0.5),
-            optax.adabelief(lr_ent))
-
+        opt_init, self.opt_ent = build_optimizer(lr_ent)
         self.opt_ent_state = opt_init(self.log_ent_coef)
 
         self._n_updates = 0

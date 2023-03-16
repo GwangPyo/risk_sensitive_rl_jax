@@ -1,14 +1,16 @@
-from risk_sensitive_rl.rl_agents.td3 import TD3
+import haiku as hk
+import jax.numpy as jnp
+import jax
+
+from functools import partial
 import gym
+
+from risk_sensitive_rl.rl_agents.td3 import TD3
 from risk_sensitive_rl.rl_agents.cmv_sac_td3.policy import CMVCritic, RewardPredictor
 from typing import Callable
 from risk_sensitive_rl.utils.optimize import optimize, soft_update
 
-import haiku as hk
-import jax.numpy as jnp
-import jax
-import optax
-from functools import partial
+from risk_sensitive_rl.rl_agents.misc import build_optimizer
 
 
 class CMVTD3(TD3):
@@ -16,14 +18,14 @@ class CMVTD3(TD3):
                  env: gym.Env,
                  buffer_size: int = 1000_000,
                  gamma: float = 0.99,
-                 batch_size: int = 256,
+                 batch_size: int = 128,
                  warmup_steps: int = 2000,
                  seed: int = 0,
                  delay: int = 2,
                  lr_actor: float = 3e-4,
                  lr_critic: float = 3e-4,
                  lr_reward: float = 3e-4,
-                 soft_update_coef: float = 5e-2,
+                 soft_update_coef: float = 5e-3,
                  target_noise=0.3,
                  target_noise_clip=0.5,
                  exploration_noise=0.3,
@@ -48,10 +50,7 @@ class CMVTD3(TD3):
                 next(self.rng), obs_placeholder, a_placeholder
             )
 
-            opt_init, self.opt_critic = optax.chain(
-                optax.add_decayed_weights(1e-2),
-                optax.clip_by_global_norm(0.5),
-                optax.adabelief(lr_critic))
+            opt_init, self.opt_critic = build_optimizer(lr_critic)
 
         def reward_predictor(observation, action):
             return RewardPredictor()(observation, action)
@@ -62,10 +61,7 @@ class CMVTD3(TD3):
             next(self.rng), obs_placeholder, a_placeholder
         )
 
-        opt_init, self.opt_reward_predictor = optax.chain(
-            optax.add_decayed_weights(1e-2),
-            optax.clip_by_global_norm(0.5),
-            optax.adabelief(lr_reward))
+        opt_init, self.opt_reward_predictor = build_optimizer(lr_reward)
 
         self.opt_reward_predictor_state = opt_init(self.param_reward_predictor)
 

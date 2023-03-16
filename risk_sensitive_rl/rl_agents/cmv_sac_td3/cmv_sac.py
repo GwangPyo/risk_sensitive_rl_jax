@@ -8,8 +8,8 @@ from risk_sensitive_rl.common_model.commons import get_actions_logprob
 import haiku as hk
 import jax.numpy as jnp
 import jax
-import optax
 from functools import partial
+from risk_sensitive_rl.rl_agents.misc import build_optimizer
 
 
 class CMVSAC(SAC):
@@ -17,14 +17,14 @@ class CMVSAC(SAC):
                  env: gym.Env,
                  buffer_size: int = 1000_000,
                  gamma: float = 0.99,
-                 batch_size: int = 256,
+                 batch_size: int = 128,
                  warmup_steps: int = 2000,
                  seed: int = 0,
                  lr_actor: float = 3e-4,
                  lr_critic: float = 3e-4,
                  lr_ent: float = 3e-4,
                  lr_reward: float = 3e-4,
-                 soft_update_coef: float = 5e-2,
+                 soft_update_coef: float = 5e-3,
                  target_entropy: Optional[float] = None,
                  risk_param=0.5,
                  actor_fn: Callable = None,
@@ -45,10 +45,7 @@ class CMVSAC(SAC):
                 next(self.rng), obs_placeholder, a_placeholder
             )
 
-            opt_init, self.opt_critic = optax.chain(
-                optax.add_decayed_weights(1e-2),
-                optax.clip_by_global_norm(0.5),
-                optax.adabelief(lr_critic))
+            opt_init, self.opt_critic = build_optimizer(lr_critic)
 
         def reward_predictor(observation, action):
             return RewardPredictor()(observation, action)
@@ -59,11 +56,7 @@ class CMVSAC(SAC):
             next(self.rng), obs_placeholder, a_placeholder
         )
 
-        opt_init, self.opt_reward_predictor = optax.chain(
-            optax.add_decayed_weights(1e-2),
-            optax.clip_by_global_norm(0.5),
-            optax.adabelief(lr_reward))
-
+        opt_init, self.opt_reward_predictor = build_optimizer(lr_reward)
         self.opt_reward_predictor_state = opt_init(self.param_reward_predictor)
 
         super().__init__(env,

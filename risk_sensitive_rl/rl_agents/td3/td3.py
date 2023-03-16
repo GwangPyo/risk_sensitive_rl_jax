@@ -5,7 +5,8 @@ from risk_sensitive_rl.rl_agents.offpolicy import OffPolicyPG
 from risk_sensitive_rl.utils.optimize import soft_update
 import numpy as np
 import haiku as hk
-import optax
+
+from risk_sensitive_rl.rl_agents.misc import build_optimizer
 from risk_sensitive_rl.utils.optimize import optimize
 from typing import Callable
 from risk_sensitive_rl.rl_agents.td3.policy import DeterministicActor, Critic
@@ -24,16 +25,16 @@ class TD3(OffPolicyPG):
                  env: gym.Env,
                  buffer_size: int = 1000_000,
                  gamma: float = 0.99,
-                 batch_size: int = 256,
+                 batch_size: int = 128,
                  warmup_steps: int = 2000,
                  seed: int = 0,
                  lr_actor: float = 3e-4,
                  lr_critic: float = 3e-4,
                  delay: int = 2,
-                 soft_update_coef: float = 5e-2,
+                 soft_update_coef: float = 5e-3,
                  target_noise: float = 0.3,
                  target_noise_clip: float = 0.5,
-                 drop_per_net: int = 2,
+                 drop_per_net: int = 5,
                  risk_type: str = 'cvar',
                  risk_param: float = 1.,
                  wandb: bool = False,
@@ -75,19 +76,12 @@ class TD3(OffPolicyPG):
                                                                             a_placeholder,
                                                                             quantile_placeholder)
 
-        opt_init, self.opt_actor = optax.chain(
-            optax.add_decayed_weights(1e-2),
-            optax.clip_by_global_norm(0.5),
-            optax.adabelief(lr_actor))
-
+        opt_init, self.opt_actor = build_optimizer(lr_actor)
         self.opt_actor_state = opt_init(self.param_actor)
 
-        opt_init, self.opt_critic = optax.chain(
-            optax.add_decayed_weights(1e-2),
-            optax.clip_by_global_norm(0.5),
-            optax.adabelief(lr_critic))
-
+        opt_init, self.opt_critic = build_optimizer(lr_critic)
         self.opt_critic_state = opt_init(self.param_critic)
+
         self._n_updates = 0
 
         self.explore_noise = explore_noise
@@ -137,7 +131,6 @@ class TD3(OffPolicyPG):
         actions = self.actor.apply(param_actor, obs)
         qf = self.critic.apply(param_critic, obs, actions, taus).mean(axis=-1)
         qf = jnp.min(qf, axis=-1)
-
         return -qf.mean(), None
 
     @staticmethod
