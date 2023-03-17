@@ -2,14 +2,13 @@ from risk_sensitive_rl.rl_agents.sac import SAC
 import gym
 from risk_sensitive_rl.rl_agents.cmv_sac_td3.policy import CMVCritic, RewardPredictor
 from typing import Optional, Callable
-from risk_sensitive_rl.utils.optimize import optimize, soft_update
+from risk_sensitive_rl.utils.optimize import optimize, soft_update, build_optimizer
 from risk_sensitive_rl.common_model.commons import get_actions_logprob
 
 import haiku as hk
 import jax.numpy as jnp
 import jax
 from functools import partial
-from risk_sensitive_rl.rl_agents.misc import build_optimizer
 
 
 class CMVSAC(SAC):

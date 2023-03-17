@@ -8,9 +8,8 @@ import gym
 from risk_sensitive_rl.rl_agents.td3 import TD3
 from risk_sensitive_rl.rl_agents.cmv_sac_td3.policy import CMVCritic, RewardPredictor
 from typing import Callable
-from risk_sensitive_rl.utils.optimize import optimize, soft_update
+from risk_sensitive_rl.utils.optimize import optimize, soft_update, build_optimizer
 
-from risk_sensitive_rl.rl_agents.misc import build_optimizer
 
 
 class CMVTD3(TD3):

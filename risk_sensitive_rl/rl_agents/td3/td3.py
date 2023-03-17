@@ -2,15 +2,15 @@ from functools import partial
 import gym
 
 from risk_sensitive_rl.rl_agents.offpolicy import OffPolicyPG
-from risk_sensitive_rl.utils.optimize import soft_update
+from risk_sensitive_rl.utils.optimize import optimize, build_optimizer, soft_update
+from risk_sensitive_rl.rl_agents.td3.policy import DeterministicActor, Critic
+from risk_sensitive_rl.rl_agents.risk_models import *
+
 import numpy as np
 import haiku as hk
 
-from risk_sensitive_rl.rl_agents.misc import build_optimizer
-from risk_sensitive_rl.utils.optimize import optimize
 from typing import Callable
-from risk_sensitive_rl.rl_agents.td3.policy import DeterministicActor, Critic
-from risk_sensitive_rl.rl_agents.risk_models import *
+
 
 class TD3(OffPolicyPG):
     name = "TD3"
