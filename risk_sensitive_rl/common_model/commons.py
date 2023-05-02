@@ -67,7 +67,7 @@ class IQNHead(hk.Module):
     def __init__(self,
                  z_dim: int = 256,
                  net_arch: Sequence[int] = (256, 256),
-                 n_cos: int = 256
+                 n_cos: int = 64
                  ):
         super().__init__()
 
@@ -86,9 +86,35 @@ class IQNHead(hk.Module):
         )
 
     def __call__(self, feature, taus):
-        relu_feature = jax.nn.relu(feature)
         taus = self.cosine_embedding(taus)
-        qfs = self.outputs(relu_feature[:, None, :] * taus).squeeze(-1)
+        qfs = self.outputs(feature[:, None, :] * taus).squeeze(-1)
+        return qfs
+
+
+class DiscreteActionIQNHead(IQNHead):
+    def __init__(self,
+                 n_actions: int,
+                 z_dim: int = 256,
+                 net_arch: Sequence[int] = (256, 256),
+                 n_cos: int = 64
+                 ):
+        super().__init__(
+            z_dim,
+            net_arch,
+            n_cos
+        )
+        self.n_actions = n_actions
+        self.outputs = MLP(
+            net_arch=net_arch,
+            output_dim=n_actions,
+        )
+
+    def __call__(self, feature, taus) -> jnp.ndarray:
+        # taus (batch, n_taus, z_dim)
+        taus = (self.cosine_embedding(taus))
+        # feature dim [batch, 1, z_dim]
+        z = jnp.expand_dims(feature, axis=-2) * taus
+        qfs = self.outputs(z)
         return qfs
 
 
@@ -211,7 +237,7 @@ class PowerIQNHead(hk.Module):
     def __init__(self,
                  z_dim: int = 256,
                  net_arch: Sequence[int] = (256, 256),
-                 n_pow: int = 256
+                 n_pow: int = 64
                  ):
         super().__init__()
 

@@ -1,3 +1,4 @@
+import gym
 import numpy as np
 from gym import spaces
 from typing import Union, NamedTuple
@@ -29,6 +30,7 @@ class ReplayBuffer(object):
 
         self.pointer = 0
         self._full = False
+        self.discrete = isinstance(self.action_space, gym.spaces.Discrete)
 
     @staticmethod
     def size_of_space(x: spaces.Box):
@@ -42,7 +44,10 @@ class ReplayBuffer(object):
 
     def append(self, obs, action, reward, done, next_obs):
         self.observations[self.pointer] = obs.copy()
-        self.actions[self.pointer] = action.copy()
+        if self.discrete:
+            self.actions[self.pointer] = action
+        else:
+            self.actions[self.pointer] = action.copy()
         self.rewards[self.pointer] = float(reward)
         self.dones[self.pointer] = float(done)
         self.next_observations[self.pointer] = next_obs.copy()

@@ -1,7 +1,7 @@
 from functools import partial
 import gym
 
-from risk_sensitive_rl.rl_agents.offpolicy import OffPolicyPG
+from risk_sensitive_rl.rl_agents.offpolicy import OffPolicy
 from risk_sensitive_rl.utils.optimize import optimize, build_optimizer, soft_update
 from risk_sensitive_rl.rl_agents.td3.policy import DeterministicActor, Critic
 from risk_sensitive_rl.rl_agents.risk_models import *
@@ -12,7 +12,7 @@ import haiku as hk
 from typing import Callable
 
 
-class TD3(OffPolicyPG):
+class TD3(OffPolicy):
     name = "TD3"
     risk_types = {"cvar": sample_cvar,
                   "general_cvar": sample_cvar_general,
@@ -98,6 +98,25 @@ class TD3(OffPolicyPG):
         except KeyError:
             raise NotImplementedError
 
+        self.critic_layer_norms = []
+        self.actor_layer_norms = []
+        for keys in self.param_critic.keys():
+            if 'layer_norm' in keys.split('/')[-1]:
+                self.critic_layer_norms.append(keys)
+
+        for keys in self.param_actor.keys():
+            if 'layer_norm' in keys.split('/')[-1]:
+                self.critic_layer_norms.append(keys)
+
+    @partial(jax.jit, static_argnums=0)
+    def layer_norm_update(self, param_critic_target, param_critic, param_actor_target, param_actor):
+        # hard update for the layer norm
+        for key in self.critic_layer_norms:
+            param_critic_target[key] = param_critic[key]
+        for key in self.actor_layer_norms:
+            param_actor_target[key] = param_actor[key]
+        return param_critic_target, param_actor_target
+
     @partial(jax.jit, static_argnums=0)
     def _explore(self, param_actor, observations, key)-> np.ndarray:
         predictions = self._predict(param_actor, observations)[0]
@@ -129,30 +148,14 @@ class TD3(OffPolicyPG):
                    ):
 
         actions = self.actor.apply(param_actor, obs)
+        taus = self.risk_model(taus, self.risk_param)
         qf = self.critic.apply(param_critic, obs, actions, taus).mean(axis=-1)
         qf = jnp.min(qf, axis=-1)
         return -qf.mean(), None
 
-    @staticmethod
-    @jax.jit
-    def quantile_loss(y: jnp.ndarray,
-                      x: jnp.ndarray,
-                      taus: jnp.ndarray) -> jnp.ndarray:
-        pairwise_delta = y[:, None, :] - x[:, :, None]
-        abs_pairwise_delta = jnp.abs(pairwise_delta)
-        huber = jnp.where(abs_pairwise_delta > 1, abs_pairwise_delta - 0.5, pairwise_delta ** 2 * 0.5)
-        loss = jnp.abs(taus[..., None] - jax.lax.stop_gradient(pairwise_delta < 0)) * huber
-        return loss
-
     @partial(jax.jit, static_argnums=0)
     def sample_taus(self, key):
-        presume_tau = jax.random.uniform(key, (self.batch_size, self.n_quantiles)) + 0.1
-        presume_tau = presume_tau / presume_tau.sum(axis=-1, keepdims=True)
-        tau = jnp.cumsum(presume_tau, axis=-1)
-        tau_hat = jnp.zeros_like(tau)
-        tau_hat = tau_hat.at[:, 0:1].set(tau[:, 0:1] / 2)
-        tau_hat = tau_hat.at[:, 1:].set( (tau[:, 1:] + tau[:, :-1])/2)
-        return jax.lax.stop_gradient(tau), jax.lax.stop_gradient(tau_hat), jax.lax.stop_gradient(presume_tau)
+        return self._sample_taus(key, self.n_quantiles)
 
     @partial(jax.jit, static_argnums=0)
     def critic_loss(self,
@@ -232,6 +235,10 @@ class TD3(OffPolicyPG):
             self.logger.record(key='train/pi_loss', value=actor_loss.item())
             self.param_critic_target = soft_update(self.param_critic_target, self.param_critic, self.soft_update_coef)
             self.param_actor_target = soft_update(self.param_actor_target, self.param_actor, self.soft_update_coef)
+
+            self.param_critic_target, self.param_actor_target = self.layer_norm_update(
+                self.param_critic_target, self.param_critic, self.param_actor_target, self.param_actor
+            )
 
     def save(self, path):
         params = {"param_actor": self.param_actor,

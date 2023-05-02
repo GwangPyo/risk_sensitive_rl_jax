@@ -1,5 +1,5 @@
 import gym
-from risk_sensitive_rl import TD3, SAC, RCDSAC, CMVSAC, CMVTD3
+from risk_sensitive_rl import TD3, SAC, RCDSAC, CMVSAC, CMVTD3, IQN
 import os
 import fire
 from typing import Optional
@@ -16,7 +16,7 @@ class MainObject(object):
         self.__env_name = self.env_name.split('-')[0]
         self.dir_name = self.__env_name.lower()
 
-    def save(self, model, save_name: str):
+    def _save(self, model, save_name: str):
         try:
             os.makedirs(self.dir_name)
         except FileExistsError:
@@ -61,7 +61,41 @@ class MainObject(object):
             save_name = 'iqn_sac_{}_{}_seed_{}'.format(risk_type, risk_param, seed)
         else:
             save_name = self.save_name
-        self.save(model, save_name)
+        self._save(model, save_name)
+
+    def iqn(self,
+            buffer_size: int = 1000_000,
+            gamma: float = 0.99,
+            batch_size: int = 256,
+            warmup_steps: int = 2000,
+            n_quantiles: int = 8,
+            seed: int = 0,
+            wandb: bool = False,
+            soft_update_coef: float = 0.05,
+            steps_per_gradients: int = 1,
+            risk_type='cvar',
+            risk_param=1.0,):
+        env = gym.make(self.env_name)
+        model = IQN(
+            env,
+            buffer_size=buffer_size,
+            gamma=gamma,
+            batch_size=batch_size,
+            warmup_steps=warmup_steps,
+            n_quantiles=n_quantiles,
+            seed=seed,
+            wandb=wandb,
+            soft_update_coef=soft_update_coef,
+            steps_per_gradients=steps_per_gradients,
+            risk_type=risk_type,
+            risk_param=risk_param
+        )
+        model.learn(self.learning_steps)
+        if self.save_name is None:
+            save_name = 'iqn_td3_{}_{}_seed_{}'.format(risk_type, risk_param, seed)
+        else:
+            save_name = self.save_name
+        self._save(model, save_name)
 
     def td3(self,
             buffer_size: int = 1000_000,
@@ -109,7 +143,7 @@ class MainObject(object):
             save_name = 'iqn_td3_{}_{}_seed_{}'.format(risk_type, risk_param, seed)
         else:
             save_name = self.save_name
-        self.save(model, save_name)
+        self._save(model, save_name)
 
     def rcdsac(self,
                buffer_size: int = 1000_000,
@@ -152,7 +186,7 @@ class MainObject(object):
             save_name = 'rcdsac_{}_seed_{}'.format(risk_type, seed)
         else:
             save_name = self.save_name
-        self.save(model, save_name)
+        self._save(model, save_name)
 
     def cmv_sac(self,
                 buffer_size: int = 1000_000,
@@ -193,7 +227,7 @@ class MainObject(object):
             save_name = 'cmv_sac_{}_seed_{}'.format(risk_param, seed)
         else:
             save_name = self.save_name
-        self.save(model, save_name)
+        self._save(model, save_name)
 
     def cmv_td3(self,
                 buffer_size: int = 1000_000,
@@ -238,7 +272,7 @@ class MainObject(object):
             save_name = 'cmv_td3_{}_seed_{}'.format(risk_param, seed)
         else:
             save_name = self.save_name
-        self.save(model, save_name)
+        self._save(model, save_name)
 
 
 if __name__ == '__main__':

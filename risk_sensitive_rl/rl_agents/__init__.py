@@ -3,3 +3,4 @@ from .sac import SAC
 from .cmv_sac_td3 import CMVTD3
 from .cmv_sac_td3 import CMVSAC
 from .rcdsac import RCDSAC
+from .iqn import IQN

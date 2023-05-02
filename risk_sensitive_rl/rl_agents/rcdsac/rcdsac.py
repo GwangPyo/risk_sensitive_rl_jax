@@ -146,17 +146,6 @@ class RCDSAC(SAC):
         qf = jnp.min(qf, axis=-1, keepdims=True)
         return (ent_coef * log_pi - qf).mean(), jax.lax.stop_gradient(log_pi)
 
-    @staticmethod
-    @jax.jit
-    def quantile_loss(y: jnp.ndarray,
-                      x: jnp.ndarray,
-                      taus: jnp.ndarray) -> jnp.ndarray:
-        pairwise_delta = y[:, None, :] - x[:, :, None]
-        abs_pairwise_delta = jnp.abs(pairwise_delta)
-        huber = jnp.where(abs_pairwise_delta > 1, abs_pairwise_delta - 0.5, pairwise_delta ** 2 * 0.5)
-        loss = jnp.abs(taus[..., None] - jax.lax.stop_gradient(pairwise_delta < 0)) * huber
-        return loss
-
     @partial(jax.jit, static_argnums=0)
     def critic_loss(self,
                     param_critic: hk.Params,

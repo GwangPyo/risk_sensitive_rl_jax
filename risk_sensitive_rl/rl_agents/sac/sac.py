@@ -1,7 +1,7 @@
 from functools import partial
 import gym
 
-from risk_sensitive_rl.rl_agents.offpolicy import OffPolicyPG
+from risk_sensitive_rl.rl_agents.offpolicy import OffPolicy
 from risk_sensitive_rl.rl_agents.sac.policy import StochasticActor, Critic
 from risk_sensitive_rl.common_model import tanh_normal_reparamterization, get_actions_logprob
 from risk_sensitive_rl.utils.optimize import optimize, build_optimizer, soft_update
@@ -13,7 +13,7 @@ from typing import Optional, Callable
 from risk_sensitive_rl.rl_agents.risk_models import *
 
 
-class SAC(OffPolicyPG):
+class SAC(OffPolicy):
     name = "SAC"
     risk_types = {"cvar": sample_cvar,
                   "general_cvar": sample_cvar_general,
@@ -100,6 +100,18 @@ class SAC(OffPolicyPG):
         except KeyError:
             raise NotImplementedError
 
+        self.critic_layer_norms = []
+        for keys in self.param_critic.keys():
+            if 'layer_norm' in keys.split('/')[-1]:
+                self.critic_layer_norms.append(keys)
+
+    @partial(jax.jit, static_argnums=0)
+    def layer_norm_update(self, param_critic_target, param_critic):
+        # hard update for the layer norm
+        for keys in self.critic_layer_norms:
+            param_critic_target[keys] = param_critic[keys]
+        return param_critic_target
+
     def predict(self, observations, state=None, *args, **kwargs) -> np.ndarray:
         # policy predict and post process to be numpy
         observations = observations[None]
@@ -121,30 +133,14 @@ class SAC(OffPolicyPG):
 
         mu, logstd = self.actor.apply(param_actor, obs)
         actions, log_pi = get_actions_logprob(mu, logstd, key)
+        taus = self.risk_model(taus, self.risk_param)
         qf = self.critic.apply(param_critic, obs, actions, taus).mean(axis=-1)
         qf = jnp.min(qf, axis=-1, keepdims=True)
         return (ent_coef * log_pi - qf).mean(), log_pi
 
-    @staticmethod
-    @jax.jit
-    def quantile_loss(y: jnp.ndarray,
-                      x: jnp.ndarray,
-                      taus: jnp.ndarray) -> jnp.ndarray:
-        pairwise_delta = y[:, None, :] - x[:, :, None]
-        abs_pairwise_delta = jnp.abs(pairwise_delta)
-        huber = jnp.where(abs_pairwise_delta > 1, abs_pairwise_delta - 0.5, pairwise_delta ** 2 * 0.5)
-        loss = jnp.abs(taus[..., None] - jax.lax.stop_gradient(pairwise_delta < 0)) * huber
-        return loss
-
     @partial(jax.jit, static_argnums=0)
     def sample_taus(self, key):
-        presume_tau = jax.random.uniform(key, (self.batch_size, self.n_quantiles)) + 0.1
-        presume_tau = presume_tau / presume_tau.sum(axis=-1, keepdims=True)
-        tau = jnp.cumsum(presume_tau, axis=-1)
-        tau_hat = jnp.zeros_like(tau)
-        tau_hat = tau_hat.at[:, 0:1].set(tau[:, 0:1] / 2)
-        tau_hat = tau_hat.at[:, 1:].set( (tau[:, 1:] + tau[:, :-1])/2)
-        return jax.lax.stop_gradient(tau), jax.lax.stop_gradient(tau_hat), jax.lax.stop_gradient(presume_tau)
+        return self._sample_taus(key, self.n_quantiles)
 
     @partial(jax.jit, static_argnums=0)
     def critic_loss(self,
@@ -243,6 +239,7 @@ class SAC(OffPolicyPG):
         self.logger.record(key='etc/current_ent_coef', value=ent_coef.item())
 
         self.param_critic_target = soft_update(self.param_critic_target, self.param_critic, self.soft_update_coef)
+        self.param_critic_target = self.layer_norm_update(self.param_critic_target, self.param_critic)
 
     def save(self, path):
         params = {"param_actor": self.param_actor,

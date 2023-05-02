@@ -15,7 +15,7 @@ import jax
 import os
 
 
-class OffPolicyPG(object, metaclass=ABCMeta):
+class OffPolicy(object, metaclass=ABCMeta):
     name = None
 
     def __init__(self,
@@ -38,10 +38,12 @@ class OffPolicyPG(object, metaclass=ABCMeta):
         :param wandb: use wandb load or not
         """
         env.seed(seed)
-        self.env = self.wrap_env(env)
+        if isinstance(env.action_space, gym.spaces.Box):
+            self.env = self.wrap_env(env)
+        else:
+            self.env = env
         self.seed = seed
         self._last_obs = env.reset()
-        assert isinstance(env.action_space, gym.spaces.Box)
         self.warmup_steps = warmup_steps
         self.gamma = gamma
         self.buffer = self.make_buffer(buffer_size)
@@ -67,7 +69,6 @@ class OffPolicyPG(object, metaclass=ABCMeta):
                 output_formats=['stdout', 'wandb'],
                 fmt_args=(self.name, )
             )
-
 
     @staticmethod
     def wrap_env(env):
@@ -124,6 +125,16 @@ class OffPolicyPG(object, metaclass=ABCMeta):
                 self.logger.dump()
         else:
             self._last_obs = next_observation.copy()
+
+    @partial(jax.jit, static_argnums=(0, 2))
+    def _sample_taus(self, key, n_quantiles):
+        presum_tau = jax.random.uniform(key, (self.batch_size, n_quantiles)) + 0.1
+        presum_tau /= presum_tau.sum(axis=-1, keepdims=True)
+        tau = jnp.cumsum(presum_tau, axis=-1)
+        tau_hat = jnp.zeros_like(tau)
+        tau_hat = tau_hat.at[:, 0:1].set(tau[:, 0:1] / 2.)
+        tau_hat = tau_hat.at[:, 1:].set((tau[:, 1:] + tau[:, :-1]) / 2.)
+        return jax.lax.stop_gradient(tau), jax.lax.stop_gradient(tau_hat), jax.lax.stop_gradient(presum_tau)
 
     @abstractmethod
     def train_step(self):
@@ -187,4 +198,15 @@ class OffPolicyPG(object, metaclass=ABCMeta):
     @abstractmethod
     def load(self, path):
         pass
+
+    @staticmethod
+    @jax.jit
+    def quantile_loss(y: jnp.ndarray,
+                      x: jnp.ndarray,
+                      taus: jnp.ndarray) -> jnp.ndarray:
+        pairwise_delta = y[:, None, :] - x[:, :, None]
+        abs_pairwise_delta = jnp.abs(pairwise_delta)
+        huber = jnp.where(abs_pairwise_delta > 1, abs_pairwise_delta - 0.5, pairwise_delta ** 2 * 0.5)
+        loss = jnp.abs(taus[..., None] - jax.lax.stop_gradient(pairwise_delta < 0)) * huber
+        return loss
 
