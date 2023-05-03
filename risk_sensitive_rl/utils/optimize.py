@@ -10,10 +10,12 @@ from typing import Optional, Callable
 
 
 def build_optimizer(lr: float,
-                    optim_cls: Callable = optax.adam,
-                    centralize: bool = True,
+                    optim_cls: Callable = optax.adabelief,
+                    centralize: bool = False,
                     weight_decay: Optional[float] = None,
-                    clip_grad_norm: Optional[float] = None) -> optax.chain:
+                    clip_grad_norm: Optional[float] = None,
+                    decay_steps: Optional[int] = 500_000
+                    ) -> optax.chain:
     args = []
     if centralize is not None:
         args.append(optax.centralize())
@@ -21,6 +23,8 @@ def build_optimizer(lr: float,
         args.append(optax.add_decayed_weights(weight_decay))
     if clip_grad_norm is not None:
         args.append(optax.clip_by_global_norm(clip_grad_norm))
+    if decay_steps is not None and decay_steps > 0:
+        lr = optax.cosine_decay_schedule(lr, decay_steps=decay_steps)
     args.append(optim_cls(lr))
     return optax.chain(*args)
 
