@@ -183,7 +183,7 @@ class HumanOutputFormat(KVWriter, SeqWriter):
 
 
 def filter_excluded_keys(
-    key_values: Dict[str, Any], key_excluded: Dict[str, Union[str, Tuple[str, ...]]], _format: str
+        key_values: Dict[str, Any], key_excluded: Dict[str, Union[str, Tuple[str, ...]]], _format: str
 ) -> Dict[str, Any]:
     """
     Filters the keys specified by ``key_exclude`` for the specified format
@@ -199,104 +199,23 @@ def filter_excluded_keys(
 
     return {key: value for key, value in key_values.items() if not is_excluded(key)}
 
-
-class JSONOutputFormat(KVWriter):
-    """
-    Log to a file, in the JSON format
-
-    :param filename: the file to write the log to
-    """
-
-    def __init__(self, filename: str):
-        self.file = open(filename, "wt")
-
-    def write(self, key_values: Dict[str, Any], key_excluded: Dict[str, Union[str, Tuple[str, ...]]], step: int = 0) -> None:
-        def cast_to_json_serializable(value: Any):
-
-            if hasattr(value, "dtype"):
-                if value.shape == () or len(value) == 1:
-                    # if value is a dimensionless numpy array or of length 1, serialize as a float
-                    return float(value)
-                else:
-                    # otherwise, a value is a numpy array, serialize as a list or nested lists
-                    return value.tolist()
-            return value
-
-        key_values = {
-            key: cast_to_json_serializable(value)
-            for key, value in filter_excluded_keys(key_values, key_excluded, "json").items()
-        }
-        self.file.write(json.dumps(key_values) + "\n")
-        self.file.flush()
-
-    def close(self) -> None:
-        """
-        closes the file
-        """
-
-        self.file.close()
-
-
-class CSVOutputFormat(KVWriter):
-    """
-    Log to a file, in a CSV format
-
-    :param filename: the file to write the log to
-    """
-
-    def __init__(self, filename: str):
-        self.file = open(filename, "w+t")
-        self.keys = []
-        self.separator = ","
-        self.quotechar = '"'
-
-    def write(self, key_values: Dict[str, Any], key_excluded: Dict[str, Union[str, Tuple[str, ...]]], step: int = 0) -> None:
-        # Add our current row to the history
-        key_values = filter_excluded_keys(key_values, key_excluded, "csv")
-        extra_keys = key_values.keys() - self.keys
-        if extra_keys:
-            self.keys.extend(extra_keys)
-            self.file.seek(0)
-            lines = self.file.readlines()
-            self.file.seek(0)
-            for (i, key) in enumerate(self.keys):
-                if i > 0:
-                    self.file.write(",")
-                self.file.write(key)
-            self.file.write("\n")
-            for line in lines[1:]:
-                self.file.write(line[:-1])
-                self.file.write(self.separator * len(extra_keys))
-                self.file.write("\n")
-        for i, key in enumerate(self.keys):
-            if i > 0:
-                self.file.write(",")
-            value = key_values.get(key)
-
-            if isinstance(value, str):
-                # escape quotechars by prepending them with another quotechar
-                value = value.replace(self.quotechar, self.quotechar + self.quotechar)
-
-                # additionally wrap text with quotechars so that any delimiters in the text are ignored by csv readers
-                self.file.write(self.quotechar + value + self.quotechar)
-
-            elif value is not None:
-                self.file.write(str(value))
-        self.file.write("\n")
-        self.file.flush()
-
-    def close(self) -> None:
-        """
-        closes the file
-        """
-        self.file.close()
-
+from omegaconf import OmegaConf
 
 class WandbOutputFormat(KVWriter):
-    def __init__(self, project, exclude_time=True, **kwargs):
+    def __init__(self,
+                 project,
+                 name,
+                 cfg,
+                 work_dir,
+                 exclude_time=True,
+                 **kwargs):
         self.project = project
         self.wandb_logger = wandb.init(
-            project=project
+            entity = 'csi_lab',
+            dir=str(work_dir),
+            project=project,
+            name=name,
+            config=OmegaConf.to_container(cfg, resolve=True),
         )
         self.kwargs = kwargs
         self.exclude_time = exclude_time
@@ -317,34 +236,11 @@ class WandbOutputFormat(KVWriter):
 
         self.wandb_logger.log(logged_data)
 
-    def close(self) -> None:
+    def __del__(self):
         """
         closes the file
         """
-        self.wandb_logger.close()
-
-
-def make_output_format(_format: str, log_dir: str, log_suffix: str = "") -> KVWriter:
-    """
-    return a logger for the requested format
-
-    :param _format: the requested format to log to ('stdout', 'log', 'json' or 'csv' or 'tensorboard')
-    :param log_dir: the logging directory
-    :param log_suffix: the suffix for the log file
-    :return: the logger
-    """
-    os.makedirs(log_dir, exist_ok=True)
-    if _format == "stdout":
-        return HumanOutputFormat(sys.stdout)
-    elif _format == "log":
-        return HumanOutputFormat(os.path.join(log_dir, f"log{log_suffix}.txt"))
-    elif _format == "json":
-        return JSONOutputFormat(os.path.join(log_dir, f"progress{log_suffix}.json"))
-    elif _format == "csv":
-        return CSVOutputFormat(os.path.join(log_dir, f"progress{log_suffix}.csv"))
-
-    else:
-        raise ValueError(f"Unknown format specified: {_format}")
+        wandb.finish()
 
 
 # ================================================================
@@ -360,23 +256,20 @@ class Logger:
     :param output_formats: the list of output formats
     """
 
-    def __init__(self, folder: Optional[str] = None,
-                 output_formats: Sequence[Union[KVWriter, str]] = (HumanOutputFormat(sys.stdout), ),
-                 fmt_args=()):
-        _output_formats = []
-        for fmt in output_formats:
-            if isinstance(fmt, KVWriter):
-                _output_formats.append(fmt)
-            elif isinstance(fmt, str):
-                if fmt != 'wandb':
-                    _output_formats.append(make_output_format(fmt, log_dir=folder))
-                else:
-                    _output_formats.append(WandbOutputFormat(*fmt_args))
+    def __init__(self,
+                 project=None,
+                 name=None,
+                 config=None,
+                 work_dir=None
+                 ):
+        _output_formats = [HumanOutputFormat(sys.stdout)]
+        if project is not None:
+            _output_formats.append(WandbOutputFormat(project, name, config, work_dir))
+
         self.name_to_value = defaultdict(float)  # values this iteration
         self.name_to_count = defaultdict(int)
         self.name_to_excluded = defaultdict(str)
         self.level = INFO
-        self.dir = folder
         self.output_formats = _output_formats
 
     def record(self, key: str, value: Any, exclude: Optional[Union[str, Tuple[str, ...]]] = None) -> None:
@@ -485,15 +378,6 @@ class Logger:
         :param level: the logging level (can be DEBUG=10, INFO=20, WARN=30, ERROR=40, DISABLED=50)
         """
         self.level = level
-
-    def get_dir(self) -> str:
-        """
-        Get directory that log files are being written to.
-        will be None if there is no output directory (i.e., if you didn't call start)
-
-        :return: the logging directory
-        """
-        return self.dir
 
     def close(self) -> None:
         """

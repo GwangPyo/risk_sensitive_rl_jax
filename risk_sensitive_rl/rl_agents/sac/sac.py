@@ -32,6 +32,7 @@ class SAC(OffPolicy):
                  lr_actor: float = 3e-4,
                  lr_critic: float = 3e-4,
                  lr_ent: float = 3e-4,
+                 ent_coef: Optional[None] = None,
                  soft_update_coef: float = 5e-3,
                  target_entropy: Optional[float] = None,
                  drop_per_net: int = 5,
@@ -77,10 +78,19 @@ class SAC(OffPolicy):
                                                                             quantile_placeholder)
 
         self.log_ent_coef = jnp.asarray([0. ])
-        if target_entropy is None:
-            self.target_entropy = -np.prod(self.env.action_space.shape).astype(np.float32)
+        if ent_coef is None:
+            if target_entropy is None:
+                self.target_entropy = -np.prod(self.env.action_space.shape).astype(np.float32)
+            else:
+                self.target_entropy = target_entropy
+
+            opt_init, self.opt_ent = build_optimizer(lr_ent)
+            self.opt_ent_state = opt_init(self.log_ent_coef)
+            self.train_ent = True
         else:
-            self.target_entropy = target_entropy
+            self.log_ent_coef = jnp.asarray([jnp.log(ent_coef + 1e-8)])
+            self.train_ent = False
+
         opt_init, self.opt_actor = build_optimizer(lr_actor)
 
         self.opt_actor_state = opt_init(self.param_actor)
@@ -88,9 +98,6 @@ class SAC(OffPolicy):
         opt_init, self.opt_critic = build_optimizer(lr_critic)
 
         self.opt_critic_state = opt_init(self.param_critic)
-
-        opt_init, self.opt_ent = build_optimizer(lr_ent)
-        self.opt_ent_state = opt_init(self.log_ent_coef)
 
         self._n_updates = 0
         self.soft_update_coef = soft_update_coef
@@ -225,17 +232,18 @@ class SAC(OffPolicy):
             self.param_critic,
             obs, tau_hat, ent_coef, next(self.rng))
 
-        self.opt_ent_state, self.log_ent_coef, ent_coef_loss, _ = optimize(
-            self.ent_coef_loss,
-            self.opt_ent,
-            self.opt_ent_state,
-            self.log_ent_coef,
-            log_pi
-        )
+        if self.train_ent:
+            self.opt_ent_state, self.log_ent_coef, ent_coef_loss, _ = optimize(
+                self.ent_coef_loss,
+                self.opt_ent,
+                self.opt_ent_state,
+                self.log_ent_coef,
+                log_pi
+            )
+            self.logger.record(key='train/ent_coef_loss', value=ent_coef_loss.item())
 
         self.logger.record(key='train/pi_loss', value=actor_loss.item())
         self.logger.record(key='train/qf_loss', value=qf_loss.item())
-        self.logger.record(key='train/ent_coef_loss', value=ent_coef_loss.item())
         self.logger.record(key='etc/current_ent_coef', value=ent_coef.item())
 
         self.param_critic_target = soft_update(self.param_critic_target, self.param_critic, self.soft_update_coef)

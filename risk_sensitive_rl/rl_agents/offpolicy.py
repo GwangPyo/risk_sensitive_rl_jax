@@ -1,4 +1,4 @@
-from risk_sensitive_rl.utils.replay_buffer import ReplayBuffer
+from utils.replay_buffer import ReplayBuffer
 import gym
 from abc import ABCMeta, abstractmethod
 import numpy as np
@@ -8,14 +8,14 @@ import haiku as hk
 from time import time
 from datetime import timedelta
 from collections import deque
-from risk_sensitive_rl.utils.logger import Logger
-from risk_sensitive_rl.utils.env_wrappers import NormalizedActionWrapper
-from functools import partial
-import jax
+from utils.logger import Logger
+from utils.env_wrappers import NormalizedActionWrapper
 import os
+from typing import Optional
+import random
 
 
-class OffPolicy(object, metaclass=ABCMeta):
+class OffPolicyPG(object, metaclass=ABCMeta):
     name = None
 
     def __init__(self,
@@ -25,8 +25,10 @@ class OffPolicy(object, metaclass=ABCMeta):
                  batch_size: int = 256,
                  warmup_steps: int = 2000,
                  seed: int = 0,
-                 wandb: bool = False,
+                 wandb_proj: Optional[str] = None,
                  steps_per_gradients: int = 1,
+                 cfg = None,
+                 work_dir = None
                  ):
         """
         :param env: environment to learn
@@ -35,20 +37,21 @@ class OffPolicy(object, metaclass=ABCMeta):
         :param batch_size: batch size to train
         :param warmup_steps: data collection steps without train
         :param seed: random seed number
-        :param wandb: use wandb load or not
+        :param wandb_proj: use wandb load or not
         """
+        self.cfg = cfg
         env.seed(seed)
-        if isinstance(env.action_space, gym.spaces.Box):
-            self.env = self.wrap_env(env)
-        else:
-            self.env = env
+        self.env = self.wrap_env(env)
         self.seed = seed
         self._last_obs = env.reset()
+        assert isinstance(env.action_space, gym.spaces.Box)
         self.warmup_steps = warmup_steps
         self.gamma = gamma
         self.buffer = self.make_buffer(buffer_size)
 
         np.random.seed(seed)
+        random.seed(seed)
+
         self.batch_size = batch_size
         self.keygen = hk.PRNGSequence(seed)
         self._last_scores = 0
@@ -61,13 +64,14 @@ class OffPolicy(object, metaclass=ABCMeta):
         self._log_interval = 1
         self._steps_per_gradients = steps_per_gradients
 
-        if not wandb:
+        if wandb_proj is None:
             self.logger = Logger()
         else:
             self.logger = Logger(
-                "log_{}".format(seed),
-                output_formats=['stdout', 'wandb'],
-                fmt_args=(self.name, )
+                project=wandb_proj,
+                name=self.named_config,
+                config=cfg,
+                work_dir=work_dir
             )
 
     @staticmethod
@@ -97,6 +101,7 @@ class OffPolicy(object, metaclass=ABCMeta):
             action = self.explore(self._last_obs)
         else:
             action = self.env.action_space.sample()
+
         next_observation, reward, done, info = self.env.step(action)
         self._last_scores += reward
         self._epi_len += 1
@@ -126,21 +131,15 @@ class OffPolicy(object, metaclass=ABCMeta):
         else:
             self._last_obs = next_observation.copy()
 
-    @partial(jax.jit, static_argnums=(0, 2))
-    def _sample_taus(self, key, n_quantiles):
-        presum_tau = jax.random.uniform(key, (self.batch_size, n_quantiles)) + 0.1
-        presum_tau /= presum_tau.sum(axis=-1, keepdims=True)
-        tau = jnp.cumsum(presum_tau, axis=-1)
-        tau_hat = jnp.zeros_like(tau)
-        tau_hat = tau_hat.at[:, 0:1].set(tau[:, 0:1] / 2.)
-        tau_hat = tau_hat.at[:, 1:].set((tau[:, 1:] + tau[:, :-1]) / 2.)
-        return jax.lax.stop_gradient(tau), jax.lax.stop_gradient(tau_hat), jax.lax.stop_gradient(presum_tau)
-
     @abstractmethod
     def train_step(self):
         pass
 
     def done_callback(self):
+        pass
+
+    @property
+    def named_config(self) -> str:
         pass
 
     def learn(self,
@@ -198,15 +197,4 @@ class OffPolicy(object, metaclass=ABCMeta):
     @abstractmethod
     def load(self, path):
         pass
-
-    @staticmethod
-    @jax.jit
-    def quantile_loss(y: jnp.ndarray,
-                      x: jnp.ndarray,
-                      taus: jnp.ndarray) -> jnp.ndarray:
-        pairwise_delta = y[:, None, :] - x[:, :, None]
-        abs_pairwise_delta = jnp.abs(pairwise_delta)
-        huber = jnp.where(abs_pairwise_delta > 1, abs_pairwise_delta - 0.5, pairwise_delta ** 2 * 0.5)
-        loss = jnp.abs(taus[..., None] - jax.lax.stop_gradient(pairwise_delta < 0)) * huber
-        return loss
 
