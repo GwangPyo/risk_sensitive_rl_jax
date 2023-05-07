@@ -181,7 +181,7 @@ class TD3(OffPolicy):
                                            dones=dones,
                                            key=key)
         current_qf = self.critic.apply(param_critic, obs, actions, current_taus)
-        loss = jnp.stack([(self.quantile_loss(target_qf, current_qf[:, i, :],  next_taus).mean(axis=-1) * weight).sum(axis=-1)
+        loss = jnp.stack([(self.quantile_loss(target_qf, current_qf[:, i, :],  next_taus).sum(axis=-1) * weight).sum(axis=-1)
                          for i in range(self.n_critics)], axis=1).sum(axis=-1).mean()
         return loss, None
 
