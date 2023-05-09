@@ -14,6 +14,7 @@ from risk_sensitive_rl.utils.env_wrappers import NormalizedActionWrapper
 import os
 from typing import Optional
 import random
+from functools import partial
 
 
 
@@ -29,8 +30,8 @@ class OffPolicyPG(object, metaclass=ABCMeta):
                  seed: int = 0,
                  wandb_proj: Optional[str] = None,
                  steps_per_gradients: int = 1,
-                 cfg = None,
-                 work_dir = None
+                 cfg: Optional[dict] = None,
+                 work_dir: Optional[dict] = None
                  ):
         """
         :param env: environment to learn
@@ -210,3 +211,13 @@ class OffPolicyPG(object, metaclass=ABCMeta):
         huber = jnp.where(abs_pairwise_delta > 1, abs_pairwise_delta - 0.5, pairwise_delta ** 2 * 0.5)
         loss = jnp.abs(taus[..., None] - jax.lax.stop_gradient(pairwise_delta < 0)) * huber
         return loss
+
+    @partial(jax.jit, static_argnums=0)
+    def sample_taus(self, key):
+        presume_tau = jax.random.uniform(key, shape=(self.batch_size, self.n_quantiles)) + 0.05
+        presume_tau = presume_tau / presume_tau.sum(axis=-1, keepdims=True)
+        tau = jnp.cumsum(presume_tau, axis=-1)
+        tau_hat = jnp.zeros_like(tau)
+        tau_hat = tau_hat.at[:, 0:1].set(tau[:, 0:1] / 2)
+        tau_hat = tau_hat.at[:, 1:].set((tau[:, 1:] + tau[:, :-1])/2)
+        return jax.lax.stop_gradient(tau), jax.lax.stop_gradient(tau_hat), jax.lax.stop_gradient(presume_tau)

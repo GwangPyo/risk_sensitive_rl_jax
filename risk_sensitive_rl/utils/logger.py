@@ -201,6 +201,7 @@ def filter_excluded_keys(
 
 from omegaconf import OmegaConf
 
+
 class WandbOutputFormat(KVWriter):
     def __init__(self,
                  project,
@@ -210,12 +211,17 @@ class WandbOutputFormat(KVWriter):
                  exclude_time=True,
                  **kwargs):
         self.project = project
+        try:
+            cfg = OmegaConf.to_container(cfg, resolve=True)
+        except ValueError:
+            pass
+
         self.wandb_logger = wandb.init(
-            entity = 'csi_lab',
+            entity='csi_lab',
             dir=str(work_dir),
             project=project,
             name=name,
-            config=OmegaConf.to_container(cfg, resolve=True),
+            config=cfg
         )
         self.kwargs = kwargs
         self.exclude_time = exclude_time

@@ -40,10 +40,19 @@ class SAC(OffPolicyPG):
                  risk_param=1.0,
                  actor_fn: Callable = None,
                  critic_fn: Callable = None,
-                 wandb: bool = False,
+                 wandb_proj: Optional[str] = None,
+                 cfg: Optional[dict] = None,
+                 work_dir: Optional[str] = None,
                  n_critics: int = 2,
                  ):
+        try:
+            self.risk_model = SAC.risk_types[risk_type]
+            self.risk_param = risk_param
 
+        except KeyError:
+            raise NotImplementedError
+
+        self.risk_name = risk_type
         self.n_critics = n_critics
         self.rng = hk.PRNGSequence(seed)
         super().__init__(env,
@@ -52,7 +61,9 @@ class SAC(OffPolicyPG):
                          batch_size=batch_size,
                          warmup_steps=warmup_steps,
                          seed=seed,
-                         wandb=wandb)
+                         wandb_proj=wandb_proj,
+                         work_dir=work_dir,
+                         cfg=cfg)
         n_quantiles = 32
         self.n_quantiles = n_quantiles
         self.drop_per_net = drop_per_net
@@ -101,11 +112,6 @@ class SAC(OffPolicyPG):
 
         self._n_updates = 0
         self.soft_update_coef = soft_update_coef
-        try:
-            self.risk_model = SAC.risk_types[risk_type]
-            self.risk_param = risk_param
-        except KeyError:
-            raise NotImplementedError
 
         self.critic_layer_norms = []
         for keys in self.param_critic.keys():
@@ -144,10 +150,6 @@ class SAC(OffPolicyPG):
         qf = self.critic.apply(param_critic, obs, actions, taus).mean(axis=-1)
         qf = jnp.min(qf, axis=-1, keepdims=True)
         return (ent_coef * log_pi - qf).mean(), log_pi
-
-    @partial(jax.jit, static_argnums=0)
-    def sample_taus(self, key):
-        return self._sample_taus(key, self.n_quantiles)
 
     @partial(jax.jit, static_argnums=0)
     def critic_loss(self,
@@ -261,3 +263,6 @@ class SAC(OffPolicyPG):
         self.param_actor = params["param_actor"].item()
         self.param_critic = params["param_critic"].item()
 
+    @property
+    def named_config(self) -> str:
+        return f'IQN_SAC_{self.risk_name}:{self.risk_param}_seed_{self.seed}'

@@ -7,9 +7,9 @@ import gym
 
 from risk_sensitive_rl.rl_agents.td3 import TD3
 from risk_sensitive_rl.rl_agents.cmv_sac_td3.policy import CMVCritic, RewardPredictor
-from typing import Callable
 from risk_sensitive_rl.utils.optimize import optimize, soft_update, build_optimizer
 
+from typing import Callable, Optional
 
 
 class CMVTD3(TD3):
@@ -32,7 +32,9 @@ class CMVTD3(TD3):
                  risk_param=0.5,
                  actor_fn: Callable = None,
                  critic_fn: Callable = None,
-                 wandb: bool = False,
+                 wandb_proj: Optional[str] = None,
+                 cfg: Optional[dict] = None,
+                 work_dir: Optional[str] = None,
                  n_critics: int = 2,
 
                  ):
@@ -64,21 +66,23 @@ class CMVTD3(TD3):
 
         self.opt_reward_predictor_state = opt_init(self.param_reward_predictor)
 
-        super().__init__(env,
-                         buffer_size,
-                         gamma,
-                         batch_size,
-                         warmup_steps,
-                         seed,
-                         lr_actor,
-                         lr_critic,
+        super().__init__(env=env,
+                         buffer_size=buffer_size,
+                         gamma=gamma,
+                         batch_size=batch_size,
+                         warmup_steps=warmup_steps,
+                         seed=seed,
+                         lr_actor=lr_actor,
+                         lr_critic=lr_critic,
                          delay=delay,
                          soft_update_coef=soft_update_coef,
                          target_noise=target_noise,
                          target_noise_clip=target_noise_clip,
                          drop_per_net=1,
                          risk_param=0.5,
-                         wandb=wandb,
+                         wandb_proj=wandb_proj,
+                         work_dir=work_dir,
+                         cfg=cfg,
                          actor_fn=actor_fn,
                          critic_fn=critic_fn,
                          explore_noise=exploration_noise,
@@ -198,3 +202,7 @@ class CMVTD3(TD3):
         self.logger.record(key='train/qf_beta_loss', value=qf_beta_loss.mean().item())
 
         self.param_critic_target = soft_update(self.param_critic_target, self.param_critic, self.soft_update_coef)
+
+    @property
+    def named_config(self) -> str:
+        return f'CMVTD3:{self.risk_param}_seed_{self.seed}'

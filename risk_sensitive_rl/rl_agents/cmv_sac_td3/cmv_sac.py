@@ -28,7 +28,9 @@ class CMVSAC(SAC):
                  risk_param=0.5,
                  actor_fn: Callable = None,
                  critic_fn: Callable = None,
-                 wandb: bool = False,
+                 wandb_proj: Optional[str] = None,
+                 cfg: Optional[dict] = None,
+                 work_dir: Optional[str] = None,
                  n_critics: int = 2,
                  ):
         self.env = env
@@ -58,22 +60,24 @@ class CMVSAC(SAC):
         opt_init, self.opt_reward_predictor = build_optimizer(lr_reward)
         self.opt_reward_predictor_state = opt_init(self.param_reward_predictor)
 
-        super().__init__(env,
-                         buffer_size,
-                         gamma,
-                         batch_size,
-                         warmup_steps,
-                         seed,
-                         lr_actor,
-                         lr_critic,
-                         lr_ent,
-                         soft_update_coef,
-                         target_entropy,
+        super().__init__(env=env,
+                         buffer_size=buffer_size,
+                         gamma=gamma,
+                         batch_size=batch_size,
+                         warmup_steps=warmup_steps,
+                         seed=seed,
+                         lr_actor=lr_actor,
+                         lr_critic=lr_critic,
+                         lr_ent=lr_ent,
+                         soft_update_coef=soft_update_coef,
+                         target_entropy=target_entropy,
                          drop_per_net=-1,
                          risk_param=0.5,
                          actor_fn=actor_fn,
                          critic_fn=critic_fn,
-                         wandb=wandb
+                         wandb_proj=wandb_proj,
+                         work_dir=work_dir,
+                         cfg=cfg
                          )
         self.cmv_beta = risk_param
         self.gamma_square = self.gamma ** 2
@@ -201,3 +205,7 @@ class CMVSAC(SAC):
         self.logger.record(key='train/qf_beta_loss', value=qf_beta_loss.mean().item())
 
         self.param_critic_target = soft_update(self.param_critic_target, self.param_critic, self.soft_update_coef)
+
+    @property
+    def named_config(self) -> str:
+        return f'CMVSAC:{self.risk_param}_seed_{self.seed}'

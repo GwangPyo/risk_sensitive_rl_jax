@@ -9,7 +9,7 @@ from risk_sensitive_rl.rl_agents.risk_models import *
 import numpy as np
 import haiku as hk
 
-from typing import Callable
+from typing import Callable, Optional
 
 
 class TD3(OffPolicyPG):
@@ -37,13 +37,22 @@ class TD3(OffPolicyPG):
                  drop_per_net: int = 5,
                  risk_type: str = 'cvar',
                  risk_param: float = 1.,
-                 wandb: bool = False,
+                 wandb_proj: Optional[str] = None,
+                 cfg: Optional[dict] = None,
+                 work_dir: Optional[str] = None,
                  actor_fn: Callable = None,
                  critic_fn: Callable = None,
                  explore_noise: float = 0.3,
                  exploration_noise_clip: float = 0.5,
                  n_critics: int = 2,
                  ):
+        try:
+            self.risk_model = TD3.risk_types[risk_type]
+            self.risk_param = risk_param
+        except KeyError:
+            raise NotImplementedError
+
+        self.risk_name = risk_type
         self.rng = hk.PRNGSequence(seed)
         super().__init__(env,
                          buffer_size=buffer_size,
@@ -51,7 +60,9 @@ class TD3(OffPolicyPG):
                          batch_size=batch_size,
                          warmup_steps=warmup_steps,
                          seed=seed,
-                         wandb=wandb)
+                         wandb_proj=wandb_proj,
+                         work_dir=work_dir,
+                         cfg=cfg)
         n_quantiles = 32
         self.n_quantiles = n_quantiles
         self.n_critics = n_critics
@@ -92,11 +103,6 @@ class TD3(OffPolicyPG):
         self.target_noise_clip = target_noise_clip
         self.soft_update_coef = soft_update_coef
         self.taus_placeholder = jnp.ones((self.batch_size, self.n_quantiles), dtype=jnp.float32)
-        try:
-            self.risk_model = TD3.risk_types[risk_type]
-            self.risk_param = risk_param
-        except KeyError:
-            raise NotImplementedError
 
         self.critic_layer_norms = []
         self.actor_layer_norms = []
@@ -250,3 +256,7 @@ class TD3(OffPolicyPG):
         params = np.load(path, allow_pickle=True)
         self.param_actor = params["param_actor"].item()
         self.param_critic = params["param_critic"].item()
+
+    @property
+    def named_config(self) -> str:
+        return f'IQN_TD3_{self.risk_name}:{self.risk_param}_seed_{self.seed}'

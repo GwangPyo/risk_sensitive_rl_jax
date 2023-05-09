@@ -37,13 +37,20 @@ class RCDSAC(SAC):
                  actor_fn: Callable = None,
                  critic_fn: Callable = None,
                  drop_per_net: int = 5,
-                 wandb: bool = False,
+                 wandb_proj: Optional[str] = None,
+                 cfg: Optional[dict] = None,
+                 work_dir: Optional[str] = None,
                  risk_type: str = 'cvar',
                  min_risk_param: float = 0.,
                  max_risk_param: float = 1.,
                  n_critics: int = 2,
-                 ):
 
+                 ):
+        try:
+            self.risk_model = RCDSAC.risk_types[risk_type]
+        except KeyError:
+            raise NotImplementedError
+        self.risk_name = risk_type
         self.rng = hk.PRNGSequence(seed)
         self.env = env
         n_quantiles = 32
@@ -85,17 +92,15 @@ class RCDSAC(SAC):
                          lr_actor=lr_actor,
                          lr_critic=lr_critic,
                          lr_ent=lr_ent,
-                         wandb=wandb)
+                         wandb_proj=wandb_proj,
+                         work_dir=work_dir,
+                         cfg=cfg)
 
         self._n_updates = 0
         self.soft_update_coef = soft_update_coef
         self.drop_per_net = drop_per_net
 
         self.min_risk_param, self.max_risk_param = min_risk_param, max_risk_param
-        try:
-            self.risk_model = RCDSAC.risk_types[risk_type]
-        except KeyError:
-            raise NotImplementedError
         self.current_risk = self.set_alpha()
 
     def set_alpha(self):
@@ -277,3 +282,7 @@ class RCDSAC(SAC):
 
         self.param_actor = params["param_actor"].item()
         self.param_critic = params["param_critic"].item()
+
+    @property
+    def named_config(self) -> str:
+        return f'RCDSAC_{self.risk_name}_seed_{self.seed}'

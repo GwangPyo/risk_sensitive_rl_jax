@@ -33,22 +33,26 @@ class IQN(OffPolicyPG):
                  warmup_steps: int = 2000,
                  n_quantiles: int = 8,
                  seed: int = 0,
-                 wandb: bool = False,
+                 wandb_proj: Optional[str] = None,
+                 cfg: Optional[dict] = None,
+                 work_dir: Optional[str] = None,
                  soft_update_coef: float = 0.05,
                  steps_per_gradients: int = 1,
                  risk_type='cvar',
                  risk_param=1.0,
                  ):
         super().__init__(
-            env,
-            buffer_size,
-            gamma,
-            batch_size,
-            warmup_steps,
-            seed,
-            wandb,
-            steps_per_gradients
-        )
+            env=env,
+            buffer_size=buffer_size,
+            gamma=gamma,
+            batch_size=batch_size,
+            warmup_steps=warmup_steps,
+            seed=seed,
+            steps_per_gradients=steps_per_gradients,
+            wandb_proj=wandb_proj,
+            work_dir=work_dir,
+            cfg=cfg)
+
         self.n_quantiles = n_quantiles
         self.rng = hk.PRNGSequence(seed)
         if policy_fn is None:
