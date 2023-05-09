@@ -185,7 +185,7 @@ class RCDSAC(SAC):
 
         loss = jnp.stack([(self.quantile_loss(target_qf,
                                               current_qf[:, i, :],
-                                              taus_hat).mean(axis=-1) * weight).sum(axis=-1)
+                                              taus_hat).sum(axis=-1) * weight).sum(axis=-1)
                           for i in range(self.n_critics)], axis=1)
         return loss.sum(axis=-1).mean(), target_qf
 

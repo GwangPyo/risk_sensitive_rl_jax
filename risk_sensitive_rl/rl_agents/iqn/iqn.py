@@ -153,7 +153,7 @@ class IQN(OffPolicyPG):
         target_qf = self.compute_target_qf(param_qf_target, param_qf, next_obs, rewards,
                                                      dones, next_taus)
 
-        quantile_loss = (self.quantile_loss(target_qf, current_qf, taus)).mean(axis=-1) * weight
+        quantile_loss = (self.quantile_loss(target_qf, current_qf, taus)).sum(axis=-1) * weight
         quantile_loss = quantile_loss.sum(axis=-1).mean()
         return quantile_loss, None
 

@@ -178,7 +178,7 @@ class SAC(OffPolicyPG):
                                            key=key)
 
         current_qf = self.critic.apply(param_critic, obs, actions, tau_hat)
-        loss = jnp.stack([((self.quantile_loss(target_qf, current_qf[:, i, :],  tau_hat).mean(axis=-1))
+        loss = jnp.stack([((self.quantile_loss(target_qf, current_qf[:, i, :],  tau_hat).sum(axis=-1))
                           * weight).sum(axis=-1)
                          for i in range(self.n_critics)], axis=1).sum(axis=-1)
         return loss.mean(), None
