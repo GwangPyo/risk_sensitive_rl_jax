@@ -1,7 +1,7 @@
 from functools import partial
 import gym
 
-from risk_sensitive_rl.rl_agents.offpolicy import OffPolicy
+from risk_sensitive_rl.rl_agents.offpolicy import OffPolicyPG
 from risk_sensitive_rl.utils.optimize import optimize, build_optimizer, soft_update
 from risk_sensitive_rl.rl_agents.td3.policy import DeterministicActor, Critic
 from risk_sensitive_rl.rl_agents.risk_models import *
@@ -12,7 +12,7 @@ import haiku as hk
 from typing import Callable
 
 
-class TD3(OffPolicy):
+class TD3(OffPolicyPG):
     name = "TD3"
     risk_types = {"cvar": sample_cvar,
                   "general_cvar": sample_cvar_general,

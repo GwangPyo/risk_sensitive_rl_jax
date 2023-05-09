@@ -1,7 +1,7 @@
 from functools import partial
 import gym
 
-from risk_sensitive_rl.rl_agents.offpolicy import OffPolicy
+from risk_sensitive_rl.rl_agents.offpolicy import OffPolicyPG
 from risk_sensitive_rl.rl_agents.sac.policy import StochasticActor, Critic
 from risk_sensitive_rl.common_model import tanh_normal_reparamterization, get_actions_logprob
 from risk_sensitive_rl.utils.optimize import optimize, build_optimizer, soft_update
@@ -13,7 +13,7 @@ from typing import Optional, Callable
 from risk_sensitive_rl.rl_agents.risk_models import *
 
 
-class SAC(OffPolicy):
+class SAC(OffPolicyPG):
     name = "SAC"
     risk_types = {"cvar": sample_cvar,
                   "general_cvar": sample_cvar_general,

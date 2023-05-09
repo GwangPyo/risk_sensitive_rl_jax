@@ -1,6 +1,7 @@
 from functools import partial
 import numpy as np
-from risk_sensitive_rl.rl_agents.offpolicy import OffPolicy
+from risk_sensitive_rl.rl_agents.offpolicy import OffPolicyPG
+
 from risk_sensitive_rl.rl_agents.iqn.policy import IQNPolicy
 
 from typing import Optional, Callable
@@ -12,7 +13,7 @@ import haiku as hk
 from risk_sensitive_rl.rl_agents.risk_models import *
 
 
-class IQN(OffPolicy):
+class IQN(OffPolicyPG):
     name = 'SpectralDQN'
     risk_types = {"cvar": sample_cvar,
                   "general_cvar": sample_cvar_general,
