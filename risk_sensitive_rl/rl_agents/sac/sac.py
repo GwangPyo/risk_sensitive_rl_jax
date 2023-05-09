@@ -163,8 +163,8 @@ class SAC(OffPolicyPG):
                     key: jax.random.PRNGKey
                     ):
         key1, key2 = jax.random.split(key, 2)
-        _, tau_hat, weight = self.sample_taus(key1)
-        _, next_tau, _ = self.sample_taus(key2)
+        _, tau_hat, _ = self.sample_taus(key1)
+        _, next_tau, weight = self.sample_taus(key2)
 
         target_qf = self.compute_target_qf(param_critic_target,
                                            param_actor,

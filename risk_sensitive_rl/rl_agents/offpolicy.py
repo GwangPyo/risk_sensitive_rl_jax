@@ -1,6 +1,7 @@
 from risk_sensitive_rl.utils.replay_buffer import ReplayBuffer
 import gym
 from abc import ABCMeta, abstractmethod
+import jax
 import numpy as np
 import jax.numpy as jnp
 import haiku as hk
@@ -13,6 +14,7 @@ from risk_sensitive_rl.utils.env_wrappers import NormalizedActionWrapper
 import os
 from typing import Optional
 import random
+
 
 
 class OffPolicyPG(object, metaclass=ABCMeta):
@@ -198,3 +200,13 @@ class OffPolicyPG(object, metaclass=ABCMeta):
     def load(self, path):
         pass
 
+    @staticmethod
+    @jax.jit
+    def quantile_loss(y: jnp.ndarray,
+                      x: jnp.ndarray,
+                      taus: jnp.ndarray) -> jnp.ndarray:
+        pairwise_delta = y[:, None, :] - x[:, :, None]
+        abs_pairwise_delta = jnp.abs(pairwise_delta)
+        huber = jnp.where(abs_pairwise_delta > 1, abs_pairwise_delta - 0.5, pairwise_delta ** 2 * 0.5)
+        loss = jnp.abs(taus[..., None] - jax.lax.stop_gradient(pairwise_delta < 0)) * huber
+        return loss

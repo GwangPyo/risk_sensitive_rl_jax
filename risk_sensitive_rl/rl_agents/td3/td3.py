@@ -170,8 +170,8 @@ class TD3(OffPolicyPG):
                     key: jax.random.PRNGKey
                     ):
         key1, key2 = jax.random.split(key)
-        _, current_taus, weight = self.sample_taus(key1)
-        _, next_taus, _ = self.sample_taus(key2)
+        _, current_taus, _ = self.sample_taus(key1)
+        _, next_taus, weight = self.sample_taus(key2)
 
         target_qf = self.compute_target_qf(param_critic_target,
                                            param_actor_target,
