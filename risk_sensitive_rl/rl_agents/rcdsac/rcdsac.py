@@ -205,7 +205,7 @@ class RCDSAC(SAC):
         next_qf = next_qf.reshape(next_qf.shape[0], -1).sort(axis=-1)
 
         if self.drop_per_net > 0:
-            next_qf = next_qf[..., :-2 * self.drop_per_net]
+            next_qf = next_qf[..., :-self.n_critics * self.drop_per_net]
         next_qf = next_qf - ent_coef * next_log_pi
         return jax.lax.stop_gradient(rewards + self.gamma * (1. - dones) * next_qf)
 
