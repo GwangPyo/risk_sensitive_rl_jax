@@ -89,7 +89,7 @@ class RCDSAC(SAC):
                          lr_ent=lr_ent,
                          wandb_proj=wandb_proj,
                          work_dir=work_dir,
-                         risk_type=risk_type
+                         risk_type=risk_type,
                          cfg=cfg)
 
         self._n_updates = 0
