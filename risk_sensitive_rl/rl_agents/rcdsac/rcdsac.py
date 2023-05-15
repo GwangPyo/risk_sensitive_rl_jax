@@ -46,11 +46,6 @@ class RCDSAC(SAC):
                  n_critics: int = 2,
 
                  ):
-        try:
-            self.risk_model = RCDSAC.risk_types[risk_type]
-        except KeyError:
-            raise NotImplementedError
-        self.risk_name = risk_type
         self.rng = hk.PRNGSequence(seed)
         self.env = env
         n_quantiles = 32
@@ -94,6 +89,7 @@ class RCDSAC(SAC):
                          lr_ent=lr_ent,
                          wandb_proj=wandb_proj,
                          work_dir=work_dir,
+                         risk_type=risk_type
                          cfg=cfg)
 
         self._n_updates = 0
