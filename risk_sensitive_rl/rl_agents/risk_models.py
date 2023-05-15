@@ -9,7 +9,7 @@ def sample_cvar(taus: jnp.ndarray, alpha: jnp.ndarray):
 
 @jax.jit
 def sample_cvar_general(taus: jnp.ndarray, alpha: jnp.ndarray):
-    return jnp.where(alpha >= 1, (alpha - 1) + (alpha - 1) * taus, alpha * taus)
+    return jnp.where(alpha >= 1, (alpha - 1) + (2 - alpha) * taus, alpha * taus)
 
 
 @jax.jit
