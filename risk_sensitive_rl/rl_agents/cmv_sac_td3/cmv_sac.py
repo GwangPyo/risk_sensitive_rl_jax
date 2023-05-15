@@ -77,6 +77,7 @@ class CMVSAC(SAC):
                          critic_fn=critic_fn,
                          wandb_proj=wandb_proj,
                          work_dir=work_dir,
+                         n_critics=n_critics,
                          cfg=cfg
                          )
         self.cmv_beta = risk_param
