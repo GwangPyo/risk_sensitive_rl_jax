@@ -178,11 +178,28 @@ class RCDSAC(SAC):
 
         current_qf = self.critic.apply(param_critic, risk_param=alpha,
                                        obs=obs, actions=actions, taus=taus_hat)
+        key1, key2 = jax.random.split(key)
+        _, taus_hat, _ = self.sample_taus(key1)
+        _, next_taus, weight = self.sample_taus(key2)
+
+        target_qf = self.compute_target_qf(param_critic_target,
+                                           param_actor,
+                                           next_obs=next_obs,
+                                           next_taus=next_taus,
+                                           rewards=rewards,
+                                           dones=dones,
+                                           ent_coef=ent_coef,
+                                           alpha=alpha,
+                                           key=key)
+
+        current_qf = self.critic.apply(param_critic, risk_param=alpha,
+                                       obs=obs, actions=actions, taus=taus_hat)
 
         loss = jnp.stack([(self.quantile_loss(target_qf,
                                               current_qf[:, i, :],
-                                              taus_hat).sum(axis=-1) * weight).sum(axis=-1)
+                                              taus_hat).mean(axis=-1) * weight).sum(axis=-1)
                           for i in range(self.n_critics)], axis=1)
+        print(loss.shape)
         return loss.sum(axis=-1).mean(), target_qf
 
     @partial(jax.jit, static_argnums=0)
